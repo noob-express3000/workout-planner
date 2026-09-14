@@ -1,87 +1,135 @@
 # Workout Planner
 
-A minimal simulated Alexa+ experience for targeted workout planning.
+A browser-first training state system built for the Amazon Developer Hackathon Alexa+ simulated-experience route.
 
-The product is intentionally narrow: the user identifies a muscle group they believe is lagging, supplies training constraints, and the browser applies deterministic rules to recommend and adapt targeted work.
+The application is intentionally not a general fitness coach. It gives an agent a persistent, machine-operable model of a user's training state and a deterministic programming engine for targeted lifts or muscle groups.
 
-## MVP flow
+## Product model
 
-1. User selects a lagging muscle group.
-2. User supplies equipment, training days, session duration, current direct/indirect weekly sets, RIR, and soreness.
-3. The local assessment engine classifies the muscle as:
-   - `UNDERTRAINED`
-   - `ADEQUATE`
-   - `PROGRESSING`
-   - `STALLED`
-   - `RECOVERY_LIMITED`
-4. A targeted routine is generated from the assessment and available equipment.
-5. The user completes the workout.
-6. Completion is persisted in `localStorage`.
-7. The muscle is reassessed and the next recommendation is regenerated from the new state.
-
-The default demo starts with chest exposure below the engine threshold. Completing the generated session raises observed weekly exposure, causing a visible state transition and a new recommendation.
-
-## Architecture
+The web app is the state surface. Conversation is expected to happen in an external agent such as a simulated Alexa+ experience or a WebMCP-aware browser agent.
 
 ```text
-Browser
-├── Minimal conversation UI
-├── Deterministic workout engine
-├── localStorage persistence
-└── WebMCP tools
-    ├── assess_muscle_group
-    ├── create_routine
-    ├── get_routine
-    ├── log_set
-    ├── complete_workout
-    ├── update_constraints
-    ├── get_progress
-    └── adjust_volume
+Human voice / conversation
+          ↓
+       Agent
+          ↓
+       WebMCP
+          ↓
+Workout Planner
+├── persistent local training state
+├── deterministic assessment engine
+├── program generator
+└── decision history
 ```
 
-There is no backend, account system, database, payment layer, or cloud state.
+No backend, account system, database, payment layer, or cloud state is required for the MVP.
 
-The UI and WebMCP tools call the same JavaScript functions. This keeps the visible simulation and agent-facing behavior synchronized.
+## Tracked training data
 
-## WebMCP
+The current model supports:
 
-When the browser exposes `document.modelContext.registerTool`, the app registers eight browser-native tools. The app feature-detects the API and continues to work normally when WebMCP is unavailable.
+- strength, hypertrophy, or power goal
+- active lift or muscle target
+- equipment
+- weekly training days
+- session duration
+- target frequency
+- direct weekly sets
+- indirect weekly sets
+- top-set load and reps
+- estimated one-rep max for lift targets
+- RIR
+- adherence
+- readiness
+- soreness
+- sleep
+- completed workouts
+- performance history
+- recovery history
+- program decisions and rationale
 
-The WebMCP status pill in the header makes tool availability visible during a demo.
+Targets currently include bench press, squat, deadlift, overhead press, chest, back, shoulders, biceps, triceps, quads, hamstrings, glutes, and calves.
 
-## Deterministic assessment model
+## Finite training states
 
-This is a hackathon programming model, not a clinical or medical model.
+The deterministic engine classifies each target as one of:
 
-Effective weekly exposure is currently calculated as:
+- `UNDERTRAINED`
+- `ADEQUATE`
+- `PROGRESSING`
+- `STALLED`
+- `RECOVERY_LIMITED`
+
+The classification uses multiple signals rather than a single volume threshold: effective exposure, target frequency, estimated-strength trend, adherence, effort, readiness, soreness, and sleep.
+
+The states are programming states for the hackathon prototype, not medical diagnoses.
+
+## WebMCP tools
+
+The app registers 11 tools when `document.modelContext.registerTool` is available:
+
+- `get_training_state`
+- `set_active_target`
+- `update_training_profile`
+- `assess_target`
+- `create_program`
+- `get_program`
+- `log_set`
+- `complete_workout`
+- `record_recovery`
+- `get_progress`
+- `adjust_program`
+
+The visible UI and the WebMCP tools operate on the exact same local state and programming functions.
+
+## Default demo
+
+The default target is bench press:
 
 ```text
-direct sets + (indirect sets × 0.5) + completed targeted sets in the last 7 days
+80 kg × 5
+5 direct weekly sets
+1 bench exposure / week
+95% adherence
+1 RIR
+normal recovery
 ```
 
-Current MVP transitions:
+Initial assessment:
 
-- `RECOVERY_LIMITED`: soreness >= 7 or recent completion rate < 65%
-- `UNDERTRAINED`: effective weekly exposure < 8 sets
-- `STALLED`: sufficient exposure, at least two recent workouts, and performance improvement <= 1%
-- `PROGRESSING`: at least two recent workouts, performance improvement > 1%, and completion >= 80%
-- `ADEQUATE`: otherwise
+```text
+UNDERTRAINED
+```
 
-Routine volume then changes deterministically from that state. The thresholds are deliberately centralized and easy to replace after testing.
+The engine responds by distributing the target across two weekly exposures rather than simply making one session harder.
 
-## Local run
+Use **Log successful demo workout** to simulate a successful session with improved performance. The recorded performance raises estimated 1RM and the target transitions to:
+
+```text
+PROGRESSING
+```
+
+The next program is rebuilt from the changed persistent state.
+
+## Local persistence
+
+All state lives in browser `localStorage` under:
+
+```text
+workout-planner.v2
+```
+
+Refreshing the page therefore preserves training history, programs, recovery data, and decisions without a backend.
+
+## Run locally
 
 No build step is required.
-
-Serve the repository over HTTP/HTTPS rather than opening `index.html` directly if you want browser APIs to behave consistently.
-
-For example:
 
 ```bash
 python -m http.server 8080
 ```
 
-Then open `http://localhost:8080`.
+Open `http://localhost:8080`.
 
 ## Render
 
@@ -89,23 +137,18 @@ Then open `http://localhost:8080`.
 
 ## Scope intentionally excluded
 
-- full fitness coaching
+- full autonomous fitness coaching
 - authentication
 - payments
 - social features
 - wearables
 - pose estimation
 - server-side persistence
-- AWS infrastructure for the initial simulated Alexa+ submission
+- a custom speech recognition stack
+- AWS infrastructure for the initial simulated Alexa+ route
 
-## Demo script
+## Design principle
 
-1. Open the app with the default values.
-2. Point out the WebMCP tool status.
-3. Click **Analyze and build routine**.
-4. Show `UNDERTRAINED` and the generated routine.
-5. Click **Complete this workout**.
-6. Show the persisted workout count, changed effective exposure, new muscle state, and adapted next routine.
-7. Refresh the page and show that the state survives locally.
+The agent handles language. The site handles state. The engine handles programming.
 
 Maximum capability. Minimum ceremony.
