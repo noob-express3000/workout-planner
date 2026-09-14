@@ -1,45 +1,57 @@
 # Workout Planner
 
-A browser-native coaching ledger for the Amazon Developer Hackathon Alexa+ simulated-experience route.
+A browser-native coaching ledger for an Alexa+/agentic coaching experience.
 
-The web app is not the conversational agent. It is the persistent training surface the agent operates.
+The website is **not** the coach and it does not generate workout plans by itself. Conversation happens outside the site. The agent authors structured coaching state through WebMCP, and the site persists and renders that state over time.
 
 ```text
-Human conversation
-      ↓
-Agent / simulated Alexa+
-      ↓
+Conversation
+    ↓
+Agent
+    ↓
 WebMCP
-      ↓
-Workout Planner
-      ↓
-Persistent coaching ledger
+    ↓
+Coaching state + historical ledger
+    ↓
+Workout Planner UI
 ```
 
-## Core model
+## Product thesis
+
+Workout Planner is persistent visual memory for a conversational coach.
+
+A fresh install starts empty. There are no hardcoded routines, lifts, KPIs, deload schedules, protein targets, or training philosophies. The agent decides what is relevant from conversation and writes that structure into the ledger.
+
+The system separates:
+
+- **current coaching state** — what the plan currently looks like
+- **historical events** — what happened and how the plan changed
+
+Program edits therefore do not erase the previous state. Before/after values are retained in the ledger.
+
+## Program hierarchy
 
 ```text
-Training Block
-└── Mesocycle
-    └── Microcycle
-        └── Session
-            └── Prescription
+Program
+└── Training Block
+    └── Mesocycle
+        └── Microcycle
+            └── Session
+                └── Activities[]
 ```
 
-Conventions used by the current prototype:
+Structural constraints:
 
-- one dominant outcome per training block
-- training block: up to roughly 6 months
-- mesocycle: up to 4 weeks
-- microcycle: up to 1 week
-- deloads are special microcycles
-- test weeks are special microcycles
+- training block: maximum six calendar months
+- mesocycle: maximum four weeks
+- microcycle: maximum one week
+- sessions must fall inside their microcycle
 
-The current demo seeds a 12-week maximum-strength block with three four-week mesocycles, scheduled deloads, a test week, and daily prescriptions.
+The site validates structure only. It does not prescribe what a block, session, or activity should contain.
 
-## Domain views
+Activities are intentionally open-ended. An agent may write strength work, running intervals, boxing rounds, mobility, swimming, cycling, testing, or other training data using the same session surface.
 
-The interface follows the coaching-notebook sketch rather than a dashboard layout.
+## Views
 
 Top-level views:
 
@@ -56,50 +68,73 @@ Training can be inspected at:
 - Training Block
 - Ledger
 
-The same stored data powers every view.
+All views are projections of the same stored model.
 
 ## Persistence
 
-Long-lived state is stored in IndexedDB rather than a single `localStorage` document.
+Long-lived state is stored in IndexedDB.
 
-The database contains:
+Object stores:
 
-- `entities` — blocks, mesocycles, microcycles, sessions, KPIs
-- `events` — append-only training, protein, sleep, KPI, program, and system history
-- `meta` — coaching profile and active-program metadata
+- `entities` — programs, blocks, mesocycles, microcycles, sessions, prescriptions, KPIs
+- `events` — observations, measurements, program changes, and system history
+- `meta` — active program/block and schema metadata
 
-Program edits preserve previous and new values in the ledger. Observations remain stored until explicitly deleted.
+The browser requests persistent storage where supported. The complete ledger can also be exported to and restored from JSON.
+
+Historical data remains until the user explicitly deletes it.
 
 See [`DATA_MODEL.md`](./DATA_MODEL.md) for the schema.
 
-The interface can export the complete local model as JSON.
+## WebMCP control plane
 
-## WebMCP tools
-
-The current site registers:
+The current site exposes:
 
 ```text
-get_program_view
-get_training_ledger
-get_coaching_profile
-update_coaching_profile
-create_training_block
-add_training_session
-update_program_entity
-log_training_session
-log_protein
-log_sleep
-log_kpi
-delete_ledger_entry
+get_coaching_state
+get_history
+apply_program
+patch_program
+append_observation
+append_measurement
+set_prescriptions
+set_kpi_schema
+set_active_program
+delete_record
 ```
 
-This lets an agent populate and operate the same ledger that the human sees.
+### Initial population
+
+The agent can construct an entire program in one call with `apply_program`.
+
+```text
+User conversation
+      ↓
+agent determines goals + constraints
+      ↓
+apply_program(...)
+      ↓
+website populates
+```
+
+### Ongoing coaching
+
+Later conversation should make smaller changes:
+
+```text
+patch_program(...)
+append_observation(...)
+append_measurement(...)
+set_prescriptions(...)
+```
+
+Every meaningful program mutation is recorded.
 
 ## Meal Planner V2 relationship
 
-Workout Planner does not modify or embed Meal Planner V2.
+Meal Planner V2 remains a separate application and is not modified by this project.
 
-The two applications follow the same browser-native philosophy and can be used by the same external agent. Workout Planner stores the coaching prescription, such as a protein target. Meal Planner can independently handle the food and recipe workflow needed to satisfy it.
+The two applications share the same philosophy: a simple browser-native surface exposes structured state to an external agent. Workout Planner may store a protein prescription while Meal Planner independently handles recipes, meals, and food planning needed to satisfy it.
 
 ## Local run
 
@@ -111,10 +146,10 @@ Open `http://localhost:8080`.
 
 ## Render
 
-The repository includes `render.yaml` for a zero-build static deployment.
+`render.yaml` provisions a zero-build static site.
 
 ## Scope
 
-No account system, cloud database, payment system, social layer, wearable dependency, or embedded LLM is required for the current prototype.
+No account system, cloud database, embedded LLM, agent framework, or Alexa backend is required for the current simulated experience.
 
-The difficult part of the product is the growing coaching model and the agent-operable interface around it.
+The difficult part is the persistent user-specific coaching model and the agent-operable interface around it.
