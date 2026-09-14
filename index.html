@@ -4,66 +4,75 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#09090b" />
+  <meta name="description" content="A persistent coaching ledger operated by conversational agents." />
   <title>Workout Planner</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
-  <main class="shell">
-    <header class="topbar">
-      <div>
-        <h1>WORKOUT PLANNER</h1>
-        <p>THIS IS ME IF I WERE COACHING</p>
-      </div>
-      <span id="webmcpStatus"><i></i><span>WebMCP checking</span></span>
-    </header>
+  <div class="app-layout">
+    <aside class="sidebar">
+      <div class="brand">Workout Planner</div>
 
-    <nav class="tabs" aria-label="Planner domains">
-      <button class="active" data-tab="training">TRAINING</button>
-      <button data-tab="protein">PROTEIN</button>
-      <button data-tab="sleep">SLEEP</button>
-      <button data-tab="kpi">KPI</button>
-    </nav>
-
-    <section id="trainingTab" class="tab-view active">
-      <div class="program-context">
-        <div><span>BLOCK</span><strong id="contextBlock">—</strong></div>
-        <div><span>MESOCYCLE</span><strong id="contextMeso">—</strong></div>
-        <div><span>MICROCYCLE</span><strong id="contextMicro">—</strong></div>
-      </div>
-
-      <nav class="subtabs" aria-label="Training scale">
-        <button class="active" data-view="microcycle">MICROCYCLE</button>
-        <button data-view="mesocycle">MESOCYCLE</button>
-        <button data-view="deload">DELOAD</button>
-        <button data-view="block">TRAINING BLOCK</button>
-        <button data-view="ledger">LEDGER</button>
+      <nav class="tabs" aria-label="Coaching domains">
+        <button class="tab active" data-tab="training" type="button"><span>Training</span></button>
+        <button class="tab" data-tab="protein" type="button"><span>Protein</span></button>
+        <button class="tab" data-tab="sleep" type="button"><span>Sleep</span></button>
+        <button class="tab" data-tab="kpi" type="button"><span>KPI</span></button>
       </nav>
 
-      <section id="trainingView" class="view"></section>
-    </section>
+      <div class="sidebar-actions">
+        <span id="webmcpStatus" class="mcp-status"><i></i><span>Checking WebMCP…</span></span>
+        <span id="storageStatus" class="storage-status">LEDGER LOADING</span>
 
-    <section id="proteinTab" class="tab-view">
-      <section id="proteinView" class="view"></section>
-    </section>
-
-    <section id="sleepTab" class="tab-view">
-      <section id="sleepView" class="view"></section>
-    </section>
-
-    <section id="kpiTab" class="tab-view">
-      <section id="kpiView" class="view"></section>
-    </section>
-
-    <footer>
-      <span id="storageStatus">LEDGER LOADING</span>
-      <div>
-        <button id="exportButton" type="button">EXPORT JSON</button>
-        <button id="importButton" type="button">IMPORT JSON</button>
-        <input id="importInput" type="file" accept="application/json,.json" hidden />
-        <button id="resetButton" type="button">CLEAR LEDGER</button>
+        <div class="data-actions">
+          <button id="exportButton" type="button">Export</button>
+          <button id="importButton" type="button">Import</button>
+          <input id="importInput" type="file" accept="application/json,.json" hidden />
+          <button id="resetButton" class="danger-action" type="button">Clear</button>
+        </div>
       </div>
-    </footer>
-  </main>
+    </aside>
+
+    <section class="workspace">
+      <main>
+        <section id="trainingTab" class="tab-view training-tab active">
+          <div class="section-head">
+            <div>
+              <h2>Training</h2>
+            </div>
+
+            <nav class="subtabs" aria-label="Training scale">
+              <button class="active" data-view="microcycle" type="button">Week</button>
+              <button data-view="mesocycle" type="button">Mesocycle</button>
+              <button data-view="deload" type="button">Deload</button>
+              <button data-view="block" type="button">Block</button>
+              <button data-view="ledger" type="button">History</button>
+            </nav>
+          </div>
+
+          <div class="program-context" aria-label="Current training context">
+            <div><span>Block</span><strong id="contextBlock">—</strong></div>
+            <div><span>Mesocycle</span><strong id="contextMeso">—</strong></div>
+            <div><span>Week</span><strong id="contextMicro">—</strong></div>
+          </div>
+
+          <section id="trainingView" class="view"></section>
+        </section>
+
+        <section id="proteinTab" class="tab-view">
+          <section id="proteinView" class="view"></section>
+        </section>
+
+        <section id="sleepTab" class="tab-view">
+          <section id="sleepView" class="view"></section>
+        </section>
+
+        <section id="kpiTab" class="tab-view">
+          <section id="kpiView" class="view"></section>
+        </section>
+      </main>
+    </section>
+  </div>
 
   <script src="./app.js"></script>
   <script src="./ledger-io.js"></script>
