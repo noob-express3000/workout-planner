@@ -8,104 +8,140 @@
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
-  <main class="app-shell">
+  <main class="shell">
     <header class="topbar">
       <div>
-        <p class="eyebrow">SIMULATED ALEXA+ EXPERIENCE</p>
+        <p class="eyebrow">BROWSER-NATIVE TRAINING STATE</p>
         <h1>Workout Planner</h1>
       </div>
-      <div class="status-pill" id="webmcpStatus" title="WebMCP availability">
-        <span class="status-dot"></span>
-        <span>WebMCP checking</span>
+      <div class="header-status">
+        <span class="pill">LOCAL STATE</span>
+        <span class="pill" id="webmcpStatus"><i></i><span>WebMCP checking</span></span>
       </div>
     </header>
 
-    <section class="conversation" aria-live="polite" aria-label="Planner conversation">
-      <div id="messages" class="messages"></div>
+    <section class="hero panel">
+      <div class="target-block">
+        <div class="target-heading">
+          <div>
+            <p class="eyebrow">ACTIVE TARGET</p>
+            <select id="targetSelect" class="target-select" aria-label="Active training target"></select>
+          </div>
+          <div class="state-badge" id="stateBadge">UNKNOWN</div>
+        </div>
+        <p class="decision" id="decisionText">Set a baseline to assess this target.</p>
+      </div>
+
+      <div class="metric-strip">
+        <div class="metric"><span>e1RM</span><strong id="e1rmMetric">—</strong><small id="e1rmDelta">No history</small></div>
+        <div class="metric"><span>Exposure</span><strong id="exposureMetric">—</strong><small>effective sets / 7d</small></div>
+        <div class="metric"><span>Frequency</span><strong id="frequencyMetric">—</strong><small>sessions / week</small></div>
+        <div class="metric"><span>Adherence</span><strong id="adherenceMetric">—</strong><small>planned work completed</small></div>
+        <div class="metric"><span>Recovery</span><strong id="recoveryMetric">—</strong><small>readiness / soreness</small></div>
+        <div class="metric"><span>Effort</span><strong id="effortMetric">—</strong><small>average RIR</small></div>
+      </div>
     </section>
 
-    <section class="workspace">
-      <div class="panel">
-        <div class="panel-heading">
+    <section class="grid">
+      <section class="panel program-panel">
+        <div class="section-heading">
           <div>
-            <p class="eyebrow">TRAINING SNAPSHOT</p>
-            <h2>What is lagging?</h2>
+            <p class="eyebrow">CURRENT PROGRAM</p>
+            <h2 id="programTitle">No recommendation yet</h2>
           </div>
-          <button class="text-button" id="resetButton" type="button">Reset demo</button>
+          <button type="button" class="ghost" id="generateButton">Rebuild</button>
         </div>
 
-        <div class="field-group">
-          <label for="targetMuscle">Target muscle</label>
-          <select id="targetMuscle">
-            <option value="chest">Chest</option>
-            <option value="back">Back</option>
-            <option value="shoulders">Shoulders</option>
-            <option value="biceps">Biceps</option>
-            <option value="triceps">Triceps</option>
-            <option value="quads">Quads</option>
-            <option value="hamstrings">Hamstrings</option>
-            <option value="glutes">Glutes</option>
-            <option value="calves">Calves</option>
-          </select>
+        <div id="programEmpty" class="empty">Assess the target to generate a focused program.</div>
+        <div id="programContent" class="hidden">
+          <div class="program-summary" id="programSummary"></div>
+          <div class="sessions" id="sessionList"></div>
+        </div>
+      </section>
+
+      <aside class="panel control-panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">BASELINE</p>
+            <h2>Training inputs</h2>
+          </div>
+          <button type="button" class="ghost" id="resetButton">Reset</button>
         </div>
 
-        <fieldset class="field-group">
+        <div class="compact-grid">
+          <label>Goal
+            <select id="goal"><option value="strength">Strength</option><option value="hypertrophy">Hypertrophy</option><option value="power">Power</option></select>
+          </label>
+          <label>Training days
+            <input id="trainingDays" type="number" min="1" max="7" value="4" />
+          </label>
+          <label>Session minutes
+            <input id="sessionDuration" type="number" min="20" max="180" step="5" value="60" />
+          </label>
+          <label>Target frequency
+            <input id="targetFrequency" type="number" min="1" max="7" value="1" />
+          </label>
+          <label>Direct sets / week
+            <input id="directSets" type="number" min="0" max="30" value="5" />
+          </label>
+          <label>Indirect sets / week
+            <input id="indirectSets" type="number" min="0" max="30" value="2" />
+          </label>
+          <label>Top-set load kg
+            <input id="loadKg" type="number" min="0" max="500" step="0.5" value="80" />
+          </label>
+          <label>Top-set reps
+            <input id="reps" type="number" min="1" max="30" value="5" />
+          </label>
+          <label>Average RIR
+            <input id="rir" type="number" min="0" max="5" step="0.5" value="1" />
+          </label>
+          <label>Adherence %
+            <input id="adherence" type="number" min="0" max="100" value="95" />
+          </label>
+          <label>Readiness 1–10
+            <input id="readiness" type="number" min="1" max="10" value="7" />
+          </label>
+          <label>Soreness 0–10
+            <input id="soreness" type="number" min="0" max="10" value="2" />
+          </label>
+          <label>Sleep hours
+            <input id="sleepHours" type="number" min="0" max="16" step="0.5" value="7.5" />
+          </label>
+        </div>
+
+        <fieldset>
           <legend>Equipment</legend>
-          <div class="chip-grid" id="equipmentGrid">
-            <label class="chip"><input type="checkbox" value="bodyweight" checked /> Bodyweight</label>
-            <label class="chip"><input type="checkbox" value="dumbbells" checked /> Dumbbells</label>
-            <label class="chip"><input type="checkbox" value="barbell" /> Barbell</label>
-            <label class="chip"><input type="checkbox" value="bench" /> Bench</label>
-            <label class="chip"><input type="checkbox" value="cables" /> Cables</label>
-            <label class="chip"><input type="checkbox" value="pullup" /> Pull-up bar</label>
-            <label class="chip"><input type="checkbox" value="machines" /> Machines</label>
+          <div class="chips" id="equipmentGrid">
+            <label><input type="checkbox" value="bodyweight" checked />Bodyweight</label>
+            <label><input type="checkbox" value="dumbbells" checked />Dumbbells</label>
+            <label><input type="checkbox" value="barbell" checked />Barbell</label>
+            <label><input type="checkbox" value="bench" checked />Bench</label>
+            <label><input type="checkbox" value="rack" checked />Rack</label>
+            <label><input type="checkbox" value="cables" />Cables</label>
+            <label><input type="checkbox" value="machines" />Machines</label>
+            <label><input type="checkbox" value="pullup" />Pull-up bar</label>
           </div>
         </fieldset>
 
-        <div class="metric-grid">
-          <label>Training days<input id="trainingDays" type="number" min="1" max="7" value="3" /></label>
-          <label>Session minutes<input id="sessionDuration" type="number" min="15" max="180" step="5" value="45" /></label>
-          <label>Direct sets / week<input id="directSets" type="number" min="0" max="30" value="4" /></label>
-          <label>Indirect sets / week<input id="indirectSets" type="number" min="0" max="30" value="2" /></label>
-          <label>Typical RIR<input id="rir" type="number" min="0" max="5" value="2" /></label>
-          <label>Soreness 0–10<input id="soreness" type="number" min="0" max="10" value="2" /></label>
-        </div>
-
-        <button class="primary-button" id="analyzeButton" type="button">Analyze and build routine</button>
-      </div>
-
-      <aside class="panel state-panel">
-        <div>
-          <p class="eyebrow">CURRENT STATE</p>
-          <div class="state-row">
-            <strong id="muscleState">—</strong>
-            <span id="effectiveSets">0 effective sets</span>
-          </div>
-        </div>
-
-        <div id="routineEmpty" class="empty-state">
-          The routine appears here after the first assessment.
-        </div>
-
-        <div id="routineCard" class="routine-card hidden">
-          <div class="routine-summary">
-            <div><span>Weekly target</span><strong id="weeklyTarget">—</strong></div>
-            <div><span>Frequency</span><strong id="frequency">—</strong></div>
-            <div><span>Session</span><strong id="sessionSets">—</strong></div>
-          </div>
-          <div id="exerciseList" class="exercise-list"></div>
-          <button class="secondary-button" id="completeButton" type="button">Complete this workout</button>
-        </div>
-
-        <div class="progress-strip">
-          <span>Completed workouts</span>
-          <strong id="completedCount">0</strong>
-        </div>
+        <button type="button" class="primary" id="assessButton">Assess & build program</button>
+        <button type="button" class="secondary" id="demoWorkoutButton">Log successful demo workout</button>
       </aside>
     </section>
 
+    <section class="panel history-panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">DECISION LOG</p>
+          <h2>What changed and why</h2>
+        </div>
+        <span class="count" id="workoutCount">0 workouts</span>
+      </div>
+      <div id="decisionLog" class="decision-log"></div>
+    </section>
+
     <footer>
-      Local state only. Deterministic training logic. No account required.
+      Deterministic programming engine · persistent local state · agent-operable through WebMCP
     </footer>
   </main>
 
