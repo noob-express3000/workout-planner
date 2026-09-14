@@ -1,0 +1,66 @@
+/* Deliberately small presentation overrides. Keep the coaching surface quiet. */
+
+/* The selected sidebar item already says Training. */
+.training-head {
+  min-height: 40px;
+  justify-content: flex-start;
+  margin-bottom: 18px;
+  padding-bottom: 12px;
+}
+
+/* Scale navigation should never advertise itself with a scrollbar. */
+.subtabs {
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.subtabs::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* These labels explain the implementation rather than the user's data. */
+.view-head > div > span {
+  display: none;
+}
+
+.view-head h2 {
+  margin-top: 0;
+}
+
+/* Keep WebMCP available as a status dot, not a sentence. */
+.mcp-status {
+  width: 14px;
+  min-height: 20px;
+}
+
+.mcp-status > span {
+  display: none;
+}
+
+.mcp-status i {
+  margin: 0;
+}
+
+/* IndexedDB/entity counts are developer information, not coaching information. */
+.storage-status {
+  display: none;
+}
+
+.sidebar-actions {
+  gap: 6px;
+}
+
+/* Avoid an empty technical header when no plan exists. */
+.training-tab:has(#trainingView > .empty) .training-head {
+  border-bottom: 0;
+  margin-bottom: 0;
+}
+
+@media (min-width: 981px) {
+  .subtabs {
+    overflow-x: visible;
+  }
+}
