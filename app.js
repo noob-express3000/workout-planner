@@ -1,571 +1,911 @@
-const STORAGE_KEY = 'workout-planner.v1';
+const STORAGE_KEY = 'workout-planner.v2';
 
-const MUSCLE_LABELS = {
-  chest: 'Chest',
-  back: 'Back',
-  shoulders: 'Shoulders',
-  biceps: 'Biceps',
-  triceps: 'Triceps',
-  quads: 'Quads',
-  hamstrings: 'Hamstrings',
-  glutes: 'Glutes',
-  calves: 'Calves',
+const TARGETS = {
+  bench_press: { label: 'Bench Press', type: 'lift', muscle: 'chest' },
+  squat: { label: 'Squat', type: 'lift', muscle: 'quads' },
+  deadlift: { label: 'Deadlift', type: 'lift', muscle: 'hamstrings' },
+  overhead_press: { label: 'Overhead Press', type: 'lift', muscle: 'shoulders' },
+  chest: { label: 'Chest', type: 'muscle', muscle: 'chest' },
+  back: { label: 'Back', type: 'muscle', muscle: 'back' },
+  shoulders: { label: 'Shoulders', type: 'muscle', muscle: 'shoulders' },
+  biceps: { label: 'Biceps', type: 'muscle', muscle: 'biceps' },
+  triceps: { label: 'Triceps', type: 'muscle', muscle: 'triceps' },
+  quads: { label: 'Quads', type: 'muscle', muscle: 'quads' },
+  hamstrings: { label: 'Hamstrings', type: 'muscle', muscle: 'hamstrings' },
+  glutes: { label: 'Glutes', type: 'muscle', muscle: 'glutes' },
+  calves: { label: 'Calves', type: 'muscle', muscle: 'calves' },
 };
 
 const EXERCISES = {
+  bench_press: [
+    { name: 'Barbell bench press', requires: ['barbell', 'bench'], reps: '4–6' },
+    { name: 'Dumbbell bench press', requires: ['dumbbells', 'bench'], reps: '6–10' },
+    { name: 'Dumbbell floor press', requires: ['dumbbells'], reps: '6–10' },
+    { name: 'Push-up', requires: ['bodyweight'], reps: '8–20' },
+  ],
+  squat: [
+    { name: 'Back squat', requires: ['barbell', 'rack'], reps: '3–6' },
+    { name: 'Front squat', requires: ['barbell', 'rack'], reps: '4–8' },
+    { name: 'Goblet squat', requires: ['dumbbells'], reps: '8–12' },
+    { name: 'Split squat', requires: ['bodyweight'], reps: '8–15 / leg' },
+  ],
+  deadlift: [
+    { name: 'Conventional deadlift', requires: ['barbell'], reps: '3–5' },
+    { name: 'Romanian deadlift', requires: ['barbell'], reps: '5–8' },
+    { name: 'Dumbbell Romanian deadlift', requires: ['dumbbells'], reps: '6–10' },
+    { name: 'Single-leg hip hinge', requires: ['bodyweight'], reps: '8–15 / leg' },
+  ],
+  overhead_press: [
+    { name: 'Barbell overhead press', requires: ['barbell'], reps: '4–6' },
+    { name: 'Dumbbell overhead press', requires: ['dumbbells'], reps: '6–10' },
+    { name: 'Pike push-up', requires: ['bodyweight'], reps: '6–15' },
+  ],
   chest: [
-    { name: 'Push-up', equipment: ['bodyweight'], reps: '8–20' },
-    { name: 'Dumbbell floor press', equipment: ['dumbbells'], reps: '8–15' },
-    { name: 'Dumbbell bench press', equipment: ['dumbbells', 'bench'], reps: '6–12' },
-    { name: 'Barbell bench press', equipment: ['barbell', 'bench'], reps: '5–10' },
-    { name: 'Cable chest press', equipment: ['cables'], reps: '8–15' },
-    { name: 'Machine chest press', equipment: ['machines'], reps: '8–15' },
+    { name: 'Dumbbell bench press', requires: ['dumbbells', 'bench'], reps: '6–12' },
+    { name: 'Barbell bench press', requires: ['barbell', 'bench'], reps: '5–10' },
+    { name: 'Cable fly', requires: ['cables'], reps: '10–20' },
+    { name: 'Push-up', requires: ['bodyweight'], reps: '8–20' },
   ],
   back: [
-    { name: 'Pull-up', equipment: ['pullup'], reps: '5–12' },
-    { name: 'One-arm dumbbell row', equipment: ['dumbbells'], reps: '8–15' },
-    { name: 'Barbell row', equipment: ['barbell'], reps: '6–12' },
-    { name: 'Cable row', equipment: ['cables'], reps: '8–15' },
-    { name: 'Machine row', equipment: ['machines'], reps: '8–15' },
+    { name: 'Pull-up', requires: ['pullup'], reps: '5–12' },
+    { name: 'Barbell row', requires: ['barbell'], reps: '6–10' },
+    { name: 'One-arm dumbbell row', requires: ['dumbbells'], reps: '8–15' },
+    { name: 'Cable row', requires: ['cables'], reps: '8–15' },
   ],
   shoulders: [
-    { name: 'Pike push-up', equipment: ['bodyweight'], reps: '6–15' },
-    { name: 'Dumbbell overhead press', equipment: ['dumbbells'], reps: '6–12' },
-    { name: 'Dumbbell lateral raise', equipment: ['dumbbells'], reps: '10–20' },
-    { name: 'Barbell overhead press', equipment: ['barbell'], reps: '5–10' },
-    { name: 'Cable lateral raise', equipment: ['cables'], reps: '10–20' },
-    { name: 'Machine shoulder press', equipment: ['machines'], reps: '8–15' },
+    { name: 'Dumbbell overhead press', requires: ['dumbbells'], reps: '6–10' },
+    { name: 'Dumbbell lateral raise', requires: ['dumbbells'], reps: '10–20' },
+    { name: 'Cable lateral raise', requires: ['cables'], reps: '10–20' },
+    { name: 'Pike push-up', requires: ['bodyweight'], reps: '6–15' },
   ],
   biceps: [
-    { name: 'Dumbbell curl', equipment: ['dumbbells'], reps: '8–15' },
-    { name: 'Barbell curl', equipment: ['barbell'], reps: '6–12' },
-    { name: 'Cable curl', equipment: ['cables'], reps: '10–15' },
-    { name: 'Machine curl', equipment: ['machines'], reps: '8–15' },
+    { name: 'Dumbbell curl', requires: ['dumbbells'], reps: '8–15' },
+    { name: 'Barbell curl', requires: ['barbell'], reps: '6–12' },
+    { name: 'Cable curl', requires: ['cables'], reps: '10–15' },
   ],
   triceps: [
-    { name: 'Close-grip push-up', equipment: ['bodyweight'], reps: '8–20' },
-    { name: 'Dumbbell overhead extension', equipment: ['dumbbells'], reps: '8–15' },
-    { name: 'Close-grip bench press', equipment: ['barbell', 'bench'], reps: '6–12' },
-    { name: 'Cable pressdown', equipment: ['cables'], reps: '10–20' },
-    { name: 'Machine dip', equipment: ['machines'], reps: '8–15' },
+    { name: 'Close-grip bench press', requires: ['barbell', 'bench'], reps: '6–10' },
+    { name: 'Dumbbell overhead extension', requires: ['dumbbells'], reps: '8–15' },
+    { name: 'Cable pressdown', requires: ['cables'], reps: '10–20' },
+    { name: 'Close-grip push-up', requires: ['bodyweight'], reps: '8–20' },
   ],
   quads: [
-    { name: 'Split squat', equipment: ['bodyweight'], reps: '8–15 / leg' },
-    { name: 'Goblet squat', equipment: ['dumbbells'], reps: '8–15' },
-    { name: 'Front squat', equipment: ['barbell'], reps: '5–10' },
-    { name: 'Cable reverse lunge', equipment: ['cables'], reps: '8–15 / leg' },
-    { name: 'Leg press', equipment: ['machines'], reps: '8–15' },
+    { name: 'Back squat', requires: ['barbell', 'rack'], reps: '5–8' },
+    { name: 'Goblet squat', requires: ['dumbbells'], reps: '8–15' },
+    { name: 'Split squat', requires: ['bodyweight'], reps: '8–15 / leg' },
+    { name: 'Leg press', requires: ['machines'], reps: '8–15' },
   ],
   hamstrings: [
-    { name: 'Single-leg hip hinge', equipment: ['bodyweight'], reps: '8–15 / leg' },
-    { name: 'Dumbbell Romanian deadlift', equipment: ['dumbbells'], reps: '6–12' },
-    { name: 'Romanian deadlift', equipment: ['barbell'], reps: '5–10' },
-    { name: 'Cable pull-through', equipment: ['cables'], reps: '10–15' },
-    { name: 'Leg curl', equipment: ['machines'], reps: '8–15' },
+    { name: 'Romanian deadlift', requires: ['barbell'], reps: '5–10' },
+    { name: 'Dumbbell Romanian deadlift', requires: ['dumbbells'], reps: '6–12' },
+    { name: 'Leg curl', requires: ['machines'], reps: '8–15' },
+    { name: 'Single-leg hip hinge', requires: ['bodyweight'], reps: '8–15 / leg' },
   ],
   glutes: [
-    { name: 'Single-leg glute bridge', equipment: ['bodyweight'], reps: '10–20' },
-    { name: 'Dumbbell hip thrust', equipment: ['dumbbells', 'bench'], reps: '8–15' },
-    { name: 'Barbell hip thrust', equipment: ['barbell', 'bench'], reps: '6–12' },
-    { name: 'Cable pull-through', equipment: ['cables'], reps: '10–15' },
-    { name: 'Hip thrust machine', equipment: ['machines'], reps: '8–15' },
+    { name: 'Barbell hip thrust', requires: ['barbell', 'bench'], reps: '6–12' },
+    { name: 'Dumbbell hip thrust', requires: ['dumbbells', 'bench'], reps: '8–15' },
+    { name: 'Cable pull-through', requires: ['cables'], reps: '10–15' },
+    { name: 'Single-leg glute bridge', requires: ['bodyweight'], reps: '10–20' },
   ],
   calves: [
-    { name: 'Single-leg calf raise', equipment: ['bodyweight'], reps: '12–25' },
-    { name: 'Dumbbell calf raise', equipment: ['dumbbells'], reps: '10–20' },
-    { name: 'Barbell calf raise', equipment: ['barbell'], reps: '8–20' },
-    { name: 'Machine calf raise', equipment: ['machines'], reps: '10–20' },
+    { name: 'Dumbbell calf raise', requires: ['dumbbells'], reps: '10–20' },
+    { name: 'Barbell calf raise', requires: ['barbell'], reps: '8–20' },
+    { name: 'Machine calf raise', requires: ['machines'], reps: '10–20' },
+    { name: 'Single-leg calf raise', requires: ['bodyweight'], reps: '12–25' },
   ],
 };
 
-const defaultState = () => ({
-  profile: {
-    targetMuscle: 'chest',
-    equipment: ['bodyweight', 'dumbbells'],
-    trainingDays: 3,
-    sessionDuration: 45,
+const ACCESSORIES = {
+  chest: [
+    { name: 'Dumbbell incline press', requires: ['dumbbells', 'bench'], reps: '8–12' },
+    { name: 'Push-up', requires: ['bodyweight'], reps: '10–20' },
+  ],
+  quads: [
+    { name: 'Split squat', requires: ['bodyweight'], reps: '8–12 / leg' },
+    { name: 'Goblet squat', requires: ['dumbbells'], reps: '8–12' },
+  ],
+  hamstrings: [
+    { name: 'Romanian deadlift', requires: ['barbell'], reps: '6–10' },
+    { name: 'Dumbbell Romanian deadlift', requires: ['dumbbells'], reps: '8–12' },
+  ],
+  shoulders: [
+    { name: 'Dumbbell lateral raise', requires: ['dumbbells'], reps: '12–20' },
+    { name: 'Pike push-up', requires: ['bodyweight'], reps: '8–15' },
+  ],
+  back: [
+    { name: 'One-arm dumbbell row', requires: ['dumbbells'], reps: '8–15' },
+    { name: 'Pull-up', requires: ['pullup'], reps: '5–12' },
+  ],
+  biceps: [{ name: 'Dumbbell curl', requires: ['dumbbells'], reps: '8–15' }],
+  triceps: [
+    { name: 'Dumbbell overhead extension', requires: ['dumbbells'], reps: '10–15' },
+    { name: 'Close-grip push-up', requires: ['bodyweight'], reps: '10–20' },
+  ],
+  glutes: [{ name: 'Dumbbell hip thrust', requires: ['dumbbells', 'bench'], reps: '8–15' }],
+  calves: [{ name: 'Single-leg calf raise', requires: ['bodyweight'], reps: '12–25' }],
+};
+
+const BASELINE_DEFAULTS = {
+  bench_press: { frequency: 1, directSets: 5, indirectSets: 2, loadKg: 80, reps: 5, rir: 1, adherence: 95 },
+  squat: { frequency: 1, directSets: 5, indirectSets: 2, loadKg: 100, reps: 5, rir: 2, adherence: 90 },
+  deadlift: { frequency: 1, directSets: 4, indirectSets: 2, loadKg: 120, reps: 5, rir: 2, adherence: 90 },
+  overhead_press: { frequency: 1, directSets: 4, indirectSets: 3, loadKg: 45, reps: 5, rir: 2, adherence: 90 },
+};
+
+function defaultBaseline(targetId) {
+  return BASELINE_DEFAULTS[targetId] || {
+    frequency: 1,
     directSets: 4,
     indirectSets: 2,
+    loadKg: 0,
+    reps: 8,
     rir: 2,
-    soreness: 2,
-  },
-  routine: null,
-  logs: [],
-  setLogs: [],
-  lastAssessment: null,
-});
+    adherence: 90,
+  };
+}
 
-let state = loadState();
+function freshState() {
+  const baselines = {};
+  Object.keys(TARGETS).forEach((id) => { baselines[id] = { ...defaultBaseline(id) }; });
+  return {
+    version: 2,
+    activeTarget: 'bench_press',
+    profile: {
+      goal: 'strength',
+      trainingDays: 4,
+      sessionDuration: 60,
+      equipment: ['bodyweight', 'dumbbells', 'barbell', 'bench', 'rack'],
+      readiness: 7,
+      soreness: 2,
+      sleepHours: 7.5,
+    },
+    baselines,
+    programs: {},
+    sets: [],
+    workouts: [],
+    recovery: [],
+    decisions: [],
+  };
+}
 
-const el = (id) => document.getElementById(id);
+function migrate(raw) {
+  if (!raw || raw.version !== 2 || !raw.baselines) return freshState();
+  const next = freshState();
+  return {
+    ...next,
+    ...raw,
+    profile: { ...next.profile, ...(raw.profile || {}) },
+    baselines: { ...next.baselines, ...(raw.baselines || {}) },
+    programs: raw.programs || {},
+    sets: Array.isArray(raw.sets) ? raw.sets : [],
+    workouts: Array.isArray(raw.workouts) ? raw.workouts : [],
+    recovery: Array.isArray(raw.recovery) ? raw.recovery : [],
+    decisions: Array.isArray(raw.decisions) ? raw.decisions : [],
+  };
+}
 
 function loadState() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    return saved && saved.profile ? saved : defaultState();
-  } catch {
-    return defaultState();
-  }
+  try { return migrate(JSON.parse(localStorage.getItem(STORAGE_KEY))); }
+  catch { return freshState(); }
 }
+
+let state = loadState();
+const $ = (id) => document.getElementById(id);
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const clamp = (value, min, max) => Math.min(max, Math.max(min, Number(value)));
+const round = (value, places = 1) => Number(Number(value).toFixed(places));
+const uid = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   render();
+  document.dispatchEvent(new Event('trainingstatechange'));
 }
 
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, Number(value)));
+function e1rm(loadKg, reps) {
+  const load = Number(loadKg);
+  const count = Number(reps);
+  if (!Number.isFinite(load) || load <= 0 || !Number.isFinite(count) || count <= 0) return null;
+  return round(load * (1 + count / 30), 1);
 }
 
-function recentWorkoutLogs(muscle) {
-  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  return state.logs.filter((log) => log.muscle === muscle && log.timestamp >= cutoff);
+function cutoff(days = 7) {
+  return Date.now() - days * 24 * 60 * 60 * 1000;
 }
 
-function observedMetrics(muscle) {
-  const logs = recentWorkoutLogs(muscle);
-  const completedSets = logs.reduce((sum, log) => sum + log.completedSets, 0);
-  const completionRate = logs.length
-    ? logs.reduce((sum, log) => sum + log.completionRate, 0) / logs.length
-    : 1;
-  const averageRir = logs.length
-    ? logs.reduce((sum, log) => sum + log.rir, 0) / logs.length
-    : state.profile.rir;
-  const soreness = logs.length ? logs[logs.length - 1].soreness : state.profile.soreness;
-
-  const performanceLogs = logs.filter((log) => Number.isFinite(log.performanceIndex));
-  let progression = 0;
-  if (performanceLogs.length >= 2) {
-    const previous = performanceLogs[performanceLogs.length - 2].performanceIndex;
-    const current = performanceLogs[performanceLogs.length - 1].performanceIndex;
-    progression = previous > 0 ? (current - previous) / previous : 0;
-  }
-
-  return { logs, completedSets, completionRate, averageRir, soreness, progression };
+function targetInfo(targetId = state.activeTarget) {
+  const info = TARGETS[targetId];
+  if (!info) throw new Error(`Unknown target: ${targetId}`);
+  return info;
 }
 
-function assessMuscleGroup(muscle = state.profile.targetMuscle) {
-  const metrics = observedMetrics(muscle);
-  const baselineDirect = muscle === state.profile.targetMuscle ? state.profile.directSets : 0;
-  const baselineIndirect = muscle === state.profile.targetMuscle ? state.profile.indirectSets : 0;
-  const effectiveSets = baselineDirect + baselineIndirect * 0.5 + metrics.completedSets;
+function baselineFor(targetId = state.activeTarget) {
+  if (!state.baselines[targetId]) state.baselines[targetId] = { ...defaultBaseline(targetId) };
+  return state.baselines[targetId];
+}
 
-  let muscleState = 'ADEQUATE';
-  let reason = 'Training exposure and recovery signals are inside the working range.';
+function recentWorkouts(targetId, days = 7) {
+  const since = cutoff(days);
+  return state.workouts.filter((item) => item.targetId === targetId && item.timestamp >= since);
+}
 
-  if (metrics.soreness >= 7 || metrics.completionRate < 0.65) {
-    muscleState = 'RECOVERY_LIMITED';
-    reason = 'Recovery or completion is too poor to justify more volume.';
-  } else if (effectiveSets < 8) {
-    muscleState = 'UNDERTRAINED';
-    reason = 'Effective weekly exposure is below the minimum target used by this demo engine.';
-  } else if (metrics.logs.length >= 2 && metrics.progression <= 0.01) {
-    muscleState = 'STALLED';
-    reason = 'Exposure is sufficient, but recent performance has not improved.';
-  } else if (metrics.logs.length >= 2 && metrics.progression > 0.01 && metrics.completionRate >= 0.8) {
-    muscleState = 'PROGRESSING';
-    reason = 'Recent performance improved while completion and recovery remained acceptable.';
-  }
+function targetSets(targetId) {
+  return state.sets.filter((item) => item.targetId === targetId).sort((a, b) => a.timestamp - b.timestamp);
+}
 
+function latestRecovery(targetId) {
+  const matching = state.recovery.filter((item) => !item.targetId || item.targetId === targetId).sort((a, b) => b.timestamp - a.timestamp);
+  if (matching.length) return matching[0];
   return {
-    muscle,
-    label: MUSCLE_LABELS[muscle] || muscle,
-    state: muscleState,
-    effectiveSets: Number(effectiveSets.toFixed(1)),
-    baselineDirect,
-    baselineIndirect,
-    loggedSetsLast7Days: metrics.completedSets,
-    completionRate: Number(metrics.completionRate.toFixed(2)),
-    averageRir: Number(metrics.averageRir.toFixed(1)),
-    soreness: Number(metrics.soreness),
-    progression: Number(metrics.progression.toFixed(3)),
-    reason,
+    readiness: state.profile.readiness,
+    soreness: state.profile.soreness,
+    sleepHours: state.profile.sleepHours,
   };
 }
 
-function exerciseAvailable(exercise, equipment) {
-  return exercise.equipment.every((required) => equipment.includes(required));
+function performanceMetrics(targetId = state.activeTarget) {
+  const info = targetInfo(targetId);
+  const baseline = baselineFor(targetId);
+  const workouts = recentWorkouts(targetId);
+  const loggedSets = targetSets(targetId);
+  const recentSets = loggedSets.filter((item) => item.timestamp >= cutoff(28));
+  const recovery = latestRecovery(targetId);
+
+  const completedSets = workouts.reduce((sum, item) => sum + item.completedSets, 0);
+  const plannedSets = workouts.reduce((sum, item) => sum + item.plannedSets, 0);
+  const adherence = plannedSets > 0 ? completedSets / plannedSets : baseline.adherence / 100;
+  const observedDirectSets = workouts.length ? completedSets : baseline.directSets;
+  const effectiveSets = observedDirectSets + baseline.indirectSets * 0.5;
+  const observedFrequency = workouts.length
+    ? new Set(workouts.map((item) => new Date(item.timestamp).toDateString())).size
+    : baseline.frequency;
+
+  const baselineE1rm = info.type === 'lift' ? e1rm(baseline.loadKg, baseline.reps) : null;
+  const performanceSets = recentSets.filter((item) => Number.isFinite(item.e1rm));
+  const latestE1rm = performanceSets.length ? Math.max(...performanceSets.slice(-5).map((item) => item.e1rm)) : baselineE1rm;
+  const trend = baselineE1rm && latestE1rm ? (latestE1rm - baselineE1rm) / baselineE1rm : null;
+  const averageRir = workouts.length
+    ? workouts.reduce((sum, item) => sum + item.rir, 0) / workouts.length
+    : baseline.rir;
+
+  return {
+    targetId,
+    label: info.label,
+    type: info.type,
+    muscle: info.muscle,
+    effectiveSets: round(effectiveSets, 1),
+    observedDirectSets,
+    indirectSets: baseline.indirectSets,
+    frequency: observedFrequency,
+    adherence: round(adherence, 2),
+    averageRir: round(averageRir, 1),
+    readiness: clamp(recovery.readiness, 1, 10),
+    soreness: clamp(recovery.soreness, 0, 10),
+    sleepHours: clamp(recovery.sleepHours, 0, 16),
+    baselineE1rm,
+    latestE1rm,
+    trend: trend === null ? null : round(trend, 4),
+    workoutCount7d: workouts.length,
+    setCount28d: recentSets.length,
+  };
 }
 
-function pickExercises(muscle, equipment, count = 2) {
-  const available = (EXERCISES[muscle] || []).filter((exercise) => exerciseAvailable(exercise, equipment));
-  if (available.length) return available.slice(0, count);
-  return [{ name: `${MUSCLE_LABELS[muscle]} movement`, equipment: [], reps: '8–15' }];
+function assessTarget(targetId = state.activeTarget) {
+  const metrics = performanceMetrics(targetId);
+  const info = targetInfo(targetId);
+  const minExposure = info.type === 'lift' ? 6 : 8;
+  const recoveryLimited = metrics.soreness >= 7 || metrics.readiness <= 4 || metrics.sleepHours < 5.5 || metrics.adherence < 0.65;
+  const clearlyProgressing = metrics.trend !== null && metrics.trend > 0.015 && metrics.adherence >= 0.8;
+  const underexposed = metrics.effectiveSets < minExposure || (info.type === 'lift' && metrics.frequency < 2);
+  const stalled = metrics.trend !== null && metrics.trend <= 0.005 && metrics.effectiveSets >= minExposure && metrics.adherence >= 0.8;
+
+  let status = 'ADEQUATE';
+  let reason = 'Exposure, execution, and recovery are inside the current working range.';
+  let action = 'Hold the current structure and collect more performance data.';
+
+  if (recoveryLimited) {
+    status = 'RECOVERY_LIMITED';
+    reason = 'Recovery or execution quality is too poor to justify adding work.';
+    action = 'Reduce fatigue cost, increase RIR, and avoid adding volume until recovery improves.';
+  } else if (clearlyProgressing) {
+    status = 'PROGRESSING';
+    reason = 'Performance improved while adherence and recovery remained acceptable.';
+    action = 'Keep the structure stable and progress load conservatively.';
+  } else if (underexposed) {
+    status = 'UNDERTRAINED';
+    reason = info.type === 'lift' && metrics.frequency < 2
+      ? 'The target has low weekly exposure and only one meaningful practice opportunity.'
+      : 'Effective weekly exposure is below the working threshold used by this engine.';
+    action = info.type === 'lift'
+      ? 'Add a second weekly exposure before making the sessions harder.'
+      : 'Add targeted weekly sets while keeping effort recoverable.';
+  } else if (stalled) {
+    status = 'STALLED';
+    reason = 'Exposure is sufficient, but recent performance is flat relative to baseline.';
+    action = 'Redistribute work, preserve technique practice, and change the progression stimulus rather than blindly adding sets.';
+  }
+
+  return { ...metrics, status, reason, action };
 }
 
-function targetVolumeFor(assessment) {
+function exerciseAvailable(exercise) {
+  return exercise.requires.every((item) => state.profile.equipment.includes(item));
+}
+
+function firstAvailable(list = []) {
+  return list.find(exerciseAvailable) || list.find((item) => item.requires.includes('bodyweight')) || list[0] || null;
+}
+
+function targetVolume(assessment) {
+  const info = targetInfo(assessment.targetId);
   const current = assessment.effectiveSets;
-  switch (assessment.state) {
-    case 'UNDERTRAINED': return clamp(Math.ceil(current + 4), 8, 12);
-    case 'RECOVERY_LIMITED': return clamp(Math.floor(current - 2), 6, 10);
-    case 'STALLED': return clamp(Math.round(current), 8, 14);
-    case 'PROGRESSING': return clamp(Math.ceil(current + 1), 8, 16);
-    default: return clamp(Math.round(current), 8, 12);
-  }
+  if (assessment.status === 'RECOVERY_LIMITED') return clamp(Math.round(current * 0.75), info.type === 'lift' ? 4 : 6, 10);
+  if (assessment.status === 'UNDERTRAINED') return info.type === 'lift' ? clamp(Math.ceil(current + 2), 6, 9) : clamp(Math.ceil(current + 4), 8, 14);
+  if (assessment.status === 'STALLED') return info.type === 'lift' ? clamp(Math.round(current), 6, 10) : clamp(Math.round(current + 1), 8, 16);
+  if (assessment.status === 'PROGRESSING') return clamp(Math.round(current), info.type === 'lift' ? 6 : 8, info.type === 'lift' ? 10 : 16);
+  return clamp(Math.round(current), info.type === 'lift' ? 6 : 8, info.type === 'lift' ? 10 : 14);
 }
 
-function createRoutine(muscle = state.profile.targetMuscle) {
-  const assessment = assessMuscleGroup(muscle);
-  const targetWeeklySets = targetVolumeFor(assessment);
-  const frequency = Math.min(state.profile.trainingDays, targetWeeklySets >= 10 ? 2 : 1);
-  const setsPerSession = Math.max(3, Math.ceil(targetWeeklySets / Math.max(1, frequency)));
-  const exerciseCount = state.profile.sessionDuration < 30 ? 1 : 2;
-  const exercises = pickExercises(muscle, state.profile.equipment, exerciseCount);
+function targetFrequency(assessment) {
+  const maxDays = state.profile.trainingDays;
+  if (assessment.status === 'RECOVERY_LIMITED') return Math.min(maxDays, Math.max(1, assessment.frequency));
+  if (assessment.type === 'lift') return Math.min(maxDays, Math.max(2, assessment.frequency));
+  return Math.min(maxDays, assessment.effectiveSets >= 10 ? 2 : Math.max(1, assessment.frequency));
+}
 
-  let remaining = setsPerSession;
-  const prescription = exercises.map((exercise, index) => {
-    const slotsLeft = exercises.length - index;
-    const sets = Math.max(1, Math.ceil(remaining / slotsLeft));
-    remaining -= sets;
-    return { ...exercise, sets, rir: assessment.state === 'RECOVERY_LIMITED' ? 3 : 2 };
-  });
+function buildLiftSessions(targetId, assessment, weeklySets, frequency) {
+  const main = firstAvailable(EXERCISES[targetId]);
+  const accessory = firstAvailable(ACCESSORIES[assessment.muscle]);
+  const sessions = [];
+  let remaining = weeklySets;
 
-  state.routine = {
-    id: `routine-${Date.now()}`,
-    muscle,
+  for (let index = 0; index < frequency; index += 1) {
+    const sessionsLeft = frequency - index;
+    const sessionSets = Math.max(2, Math.ceil(remaining / sessionsLeft));
+    remaining -= sessionSets;
+    const mainSets = Math.max(2, Math.min(4, sessionSets - (accessory ? 2 : 0)));
+    const accessorySets = Math.max(0, sessionSets - mainSets);
+    const isSecondary = index > 0;
+    const mainReps = isSecondary && main?.reps === '4–6' ? '6–8' : (main?.reps || '5–8');
+    const targetRir = assessment.status === 'RECOVERY_LIMITED' ? 3 : (assessment.status === 'STALLED' ? 2.5 : 2);
+
+    const exercises = [{ name: main?.name || assessment.label, sets: mainSets, reps: mainReps, rir: targetRir, role: isSecondary ? 'secondary practice' : 'primary lift' }];
+    if (accessory && accessorySets > 0) exercises.push({ name: accessory.name, sets: accessorySets, reps: accessory.reps, rir: Math.max(2, targetRir), role: `${assessment.muscle} support` });
+    sessions.push({ name: index === 0 ? 'Primary exposure' : `Secondary exposure ${index}`, exercises });
+  }
+  return sessions;
+}
+
+function buildMuscleSessions(targetId, assessment, weeklySets, frequency) {
+  const available = (EXERCISES[targetId] || []).filter(exerciseAvailable);
+  const picks = available.length ? available.slice(0, 2) : [firstAvailable(EXERCISES[targetId])].filter(Boolean);
+  const sessions = [];
+  let remaining = weeklySets;
+
+  for (let index = 0; index < frequency; index += 1) {
+    const sessionsLeft = frequency - index;
+    const sessionSets = Math.max(3, Math.ceil(remaining / sessionsLeft));
+    remaining -= sessionSets;
+    let setsLeft = sessionSets;
+    const exercises = picks.map((exercise, exerciseIndex) => {
+      const slots = picks.length - exerciseIndex;
+      const sets = Math.max(1, Math.ceil(setsLeft / slots));
+      setsLeft -= sets;
+      return {
+        name: exercise?.name || `${assessment.label} movement`,
+        sets,
+        reps: exercise?.reps || '8–15',
+        rir: assessment.status === 'RECOVERY_LIMITED' ? 3 : 2,
+        role: exerciseIndex === 0 ? 'primary' : 'secondary',
+      };
+    });
+    sessions.push({ name: `Targeted session ${index + 1}`, exercises });
+  }
+  return sessions;
+}
+
+function createProgram(targetId = state.activeTarget, { logDecision = true } = {}) {
+  const assessment = assessTarget(targetId);
+  const weeklySets = targetVolume(assessment);
+  const frequency = targetFrequency(assessment);
+  const sessions = assessment.type === 'lift'
+    ? buildLiftSessions(targetId, assessment, weeklySets, frequency)
+    : buildMuscleSessions(targetId, assessment, weeklySets, frequency);
+
+  const program = {
+    id: uid('program'),
+    targetId,
     createdAt: Date.now(),
-    sourceState: assessment.state,
-    targetWeeklySets,
+    sourceState: assessment.status,
+    weeklySets,
     frequency,
-    setsPerSession,
-    exercises: prescription,
+    targetRir: assessment.status === 'RECOVERY_LIMITED' ? 3 : assessment.status === 'STALLED' ? 2.5 : 2,
+    sessions,
+    rationale: assessment.action,
   };
-  state.lastAssessment = assessment;
+  state.programs[targetId] = program;
+  if (logDecision) addDecision(targetId, `${assessment.status}: program rebuilt`, `${assessment.reason} ${assessment.action}`, assessment.status);
   saveState();
-  return state.routine;
+  return clone(program);
 }
 
-function getRoutine() {
-  return state.routine;
+function getProgram(targetId = state.activeTarget) {
+  return clone(state.programs[targetId] || null);
 }
 
-function logSet({ exercise, reps, loadKg = 0, rir = state.profile.rir, muscle = state.profile.targetMuscle }) {
+function addDecision(targetId, title, detail, status = null) {
+  state.decisions.push({ id: uid('decision'), timestamp: Date.now(), targetId, title, detail, status });
+  state.decisions = state.decisions.slice(-50);
+}
+
+function logSet(input = {}) {
+  const targetId = input.targetId || state.activeTarget;
+  targetInfo(targetId);
+  const loadKg = clamp(input.loadKg ?? baselineFor(targetId).loadKg, 0, 600);
+  const reps = clamp(input.reps ?? baselineFor(targetId).reps, 1, 100);
   const entry = {
-    id: `set-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    id: uid('set'),
     timestamp: Date.now(),
-    muscle,
-    exercise: String(exercise || 'Unknown exercise'),
-    reps: clamp(reps || 0, 0, 100),
-    loadKg: clamp(loadKg || 0, 0, 1000),
-    rir: clamp(rir, 0, 5),
+    targetId,
+    exercise: String(input.exercise || targetInfo(targetId).label),
+    loadKg,
+    reps,
+    rir: clamp(input.rir ?? baselineFor(targetId).rir, 0, 5),
+    e1rm: targetInfo(targetId).type === 'lift' ? e1rm(loadKg, reps) : null,
   };
-  state.setLogs.push(entry);
+  state.sets.push(entry);
   saveState();
-  return entry;
+  return clone(entry);
 }
 
-function completeWorkout({ completedSets, plannedSets, rir, soreness, performanceIndex } = {}) {
-  if (!state.routine) throw new Error('Create a routine before completing a workout.');
-
-  const previousAssessment = assessMuscleGroup(state.routine.muscle);
-  const planned = clamp(plannedSets ?? state.routine.setsPerSession, 1, 40);
-  const completed = clamp(completedSets ?? planned, 0, planned);
-  const perceivedRir = clamp(rir ?? state.profile.rir, 0, 5);
-  const perceivedSoreness = clamp(soreness ?? state.profile.soreness, 0, 10);
-
+function recordRecovery(input = {}) {
+  const targetId = input.targetId || state.activeTarget;
+  if (targetId) targetInfo(targetId);
   const entry = {
-    id: `workout-${Date.now()}`,
+    id: uid('recovery'),
     timestamp: Date.now(),
-    muscle: state.routine.muscle,
-    routineId: state.routine.id,
-    plannedSets: planned,
-    completedSets: completed,
-    completionRate: planned ? completed / planned : 0,
-    rir: perceivedRir,
-    soreness: perceivedSoreness,
-    performanceIndex: Number.isFinite(Number(performanceIndex)) ? Number(performanceIndex) : null,
+    targetId,
+    readiness: clamp(input.readiness ?? state.profile.readiness, 1, 10),
+    soreness: clamp(input.soreness ?? state.profile.soreness, 0, 10),
+    sleepHours: clamp(input.sleepHours ?? state.profile.sleepHours, 0, 16),
   };
-
-  state.logs.push(entry);
-  state.profile.rir = perceivedRir;
-  state.profile.soreness = perceivedSoreness;
-
-  const newAssessment = assessMuscleGroup(state.routine.muscle);
-  const previousRoutine = { ...state.routine };
-  state.lastAssessment = newAssessment;
+  state.recovery.push(entry);
+  state.profile.readiness = entry.readiness;
+  state.profile.soreness = entry.soreness;
+  state.profile.sleepHours = entry.sleepHours;
+  addDecision(targetId, 'Recovery updated', `Readiness ${entry.readiness}/10, soreness ${entry.soreness}/10, sleep ${entry.sleepHours} h.`, assessTarget(targetId).status);
   saveState();
-  const nextRoutine = createRoutine(state.profile.targetMuscle);
-
-  return {
-    workout: entry,
-    previousState: previousAssessment.state,
-    newState: newAssessment.state,
-    previousWeeklyTarget: previousRoutine.targetWeeklySets,
-    nextWeeklyTarget: nextRoutine.targetWeeklySets,
-    assessment: newAssessment,
-  };
+  return clone(entry);
 }
 
-function updateConstraints(input = {}) {
-  if (Array.isArray(input.equipment) && input.equipment.length) {
-    state.profile.equipment = input.equipment.filter((item) => typeof item === 'string');
+function completeWorkout(input = {}) {
+  const targetId = input.targetId || state.activeTarget;
+  targetInfo(targetId);
+  const program = state.programs[targetId];
+  const plannedDefault = program?.sessions?.[0]?.exercises?.reduce((sum, item) => sum + item.sets, 0) || baselineFor(targetId).directSets;
+  const plannedSets = clamp(input.plannedSets ?? plannedDefault, 1, 40);
+  const completedSets = clamp(input.completedSets ?? plannedSets, 0, plannedSets);
+  const rir = clamp(input.rir ?? baselineFor(targetId).rir, 0, 5);
+
+  if (Number(input.loadKg) > 0 && Number(input.reps) > 0) {
+    const loadKg = clamp(input.loadKg, 0, 600);
+    const reps = clamp(input.reps, 1, 100);
+    state.sets.push({
+      id: uid('set'), timestamp: Date.now(), targetId,
+      exercise: String(input.exercise || targetInfo(targetId).label),
+      loadKg, reps, rir,
+      e1rm: targetInfo(targetId).type === 'lift' ? e1rm(loadKg, reps) : null,
+    });
   }
-  if (input.trainingDays !== undefined) state.profile.trainingDays = clamp(input.trainingDays, 1, 7);
-  if (input.sessionDuration !== undefined) state.profile.sessionDuration = clamp(input.sessionDuration, 15, 180);
-  if (input.directSets !== undefined) state.profile.directSets = clamp(input.directSets, 0, 30);
-  if (input.indirectSets !== undefined) state.profile.indirectSets = clamp(input.indirectSets, 0, 30);
-  if (input.rir !== undefined) state.profile.rir = clamp(input.rir, 0, 5);
-  if (input.soreness !== undefined) state.profile.soreness = clamp(input.soreness, 0, 10);
-  if (input.targetMuscle && MUSCLE_LABELS[input.targetMuscle]) state.profile.targetMuscle = input.targetMuscle;
-  saveState();
-  return { ...state.profile };
+
+  const workout = {
+    id: uid('workout'),
+    timestamp: Date.now(),
+    targetId,
+    programId: program?.id || null,
+    plannedSets,
+    completedSets,
+    rir,
+    note: String(input.note || ''),
+  };
+  state.workouts.push(workout);
+
+  if (input.readiness !== undefined || input.soreness !== undefined || input.sleepHours !== undefined) {
+    const recovery = {
+      id: uid('recovery'), timestamp: Date.now(), targetId,
+      readiness: clamp(input.readiness ?? state.profile.readiness, 1, 10),
+      soreness: clamp(input.soreness ?? state.profile.soreness, 0, 10),
+      sleepHours: clamp(input.sleepHours ?? state.profile.sleepHours, 0, 16),
+    };
+    state.recovery.push(recovery);
+    state.profile.readiness = recovery.readiness;
+    state.profile.soreness = recovery.soreness;
+    state.profile.sleepHours = recovery.sleepHours;
+  }
+
+  const after = assessTarget(targetId);
+  addDecision(targetId, `Workout completed: ${after.status}`, `${completedSets}/${plannedSets} sets completed at ${rir} RIR. ${after.action}`, after.status);
+  const nextProgram = createProgram(targetId, { logDecision: false });
+  return { workout: clone(workout), assessment: after, nextProgram };
 }
 
-function getProgress(muscle = state.profile.targetMuscle) {
-  const assessment = assessMuscleGroup(muscle);
-  const logs = state.logs.filter((log) => log.muscle === muscle);
+function updateTrainingProfile(input = {}) {
+  const targetId = input.targetId || state.activeTarget;
+  if (input.targetId) targetInfo(targetId);
+  if (input.goal && ['strength', 'hypertrophy', 'power'].includes(input.goal)) state.profile.goal = input.goal;
+  if (input.trainingDays !== undefined) state.profile.trainingDays = clamp(input.trainingDays, 1, 7);
+  if (input.sessionDuration !== undefined) state.profile.sessionDuration = clamp(input.sessionDuration, 20, 180);
+  if (Array.isArray(input.equipment) && input.equipment.length) state.profile.equipment = [...new Set(input.equipment.map(String))];
+  if (input.readiness !== undefined) state.profile.readiness = clamp(input.readiness, 1, 10);
+  if (input.soreness !== undefined) state.profile.soreness = clamp(input.soreness, 0, 10);
+  if (input.sleepHours !== undefined) state.profile.sleepHours = clamp(input.sleepHours, 0, 16);
+
+  const baseline = baselineFor(targetId);
+  if (input.frequency !== undefined) baseline.frequency = clamp(input.frequency, 1, 7);
+  if (input.directSets !== undefined) baseline.directSets = clamp(input.directSets, 0, 30);
+  if (input.indirectSets !== undefined) baseline.indirectSets = clamp(input.indirectSets, 0, 30);
+  if (input.loadKg !== undefined) baseline.loadKg = clamp(input.loadKg, 0, 600);
+  if (input.reps !== undefined) baseline.reps = clamp(input.reps, 1, 100);
+  if (input.rir !== undefined) baseline.rir = clamp(input.rir, 0, 5);
+  if (input.adherence !== undefined) baseline.adherence = clamp(input.adherence, 0, 100);
+  state.baselines[targetId] = baseline;
+
+  addDecision(targetId, 'Training baseline updated', 'The agent or user changed the persistent training inputs used by the assessment engine.', assessTarget(targetId).status);
+  saveState();
+  return getTrainingState(targetId);
+}
+
+function setActiveTarget(targetId) {
+  targetInfo(targetId);
+  state.activeTarget = targetId;
+  saveState();
+  hydrateForm();
+  return getTrainingState(targetId);
+}
+
+function getProgress(targetId = state.activeTarget) {
+  const assessment = assessTarget(targetId);
   return {
     assessment,
-    completedWorkouts: logs.length,
-    completedSets: logs.reduce((sum, log) => sum + log.completedSets, 0),
-    recentWorkouts: logs.slice(-5),
+    program: state.programs[targetId] || null,
+    workouts: state.workouts.filter((item) => item.targetId === targetId).slice(-10),
+    sets: state.sets.filter((item) => item.targetId === targetId).slice(-20),
+    decisions: state.decisions.filter((item) => item.targetId === targetId).slice(-10),
   };
 }
 
-function adjustVolume({ direction = 'hold', sets = 2 } = {}) {
-  const amount = clamp(sets, 1, 6);
-  if (direction === 'increase') state.profile.directSets = clamp(state.profile.directSets + amount, 0, 30);
-  if (direction === 'decrease') state.profile.directSets = clamp(state.profile.directSets - amount, 0, 30);
+function adjustProgram(input = {}) {
+  const targetId = input.targetId || state.activeTarget;
+  const program = state.programs[targetId] || createProgram(targetId, { logDecision: false });
+  const setDelta = clamp(input.setDelta ?? 0, -6, 6);
+  const frequencyDelta = clamp(input.frequencyDelta ?? 0, -2, 2);
+  const rirDelta = clamp(input.rirDelta ?? 0, -2, 2);
+  program.weeklySets = clamp(program.weeklySets + setDelta, 3, 20);
+  program.frequency = clamp(program.frequency + frequencyDelta, 1, state.profile.trainingDays);
+  program.targetRir = clamp(program.targetRir + rirDelta, 0, 5);
+  program.createdAt = Date.now();
+  state.programs[targetId] = program;
+  addDecision(targetId, 'Program manually adjusted', `Sets ${setDelta >= 0 ? '+' : ''}${setDelta}, frequency ${frequencyDelta >= 0 ? '+' : ''}${frequencyDelta}, RIR ${rirDelta >= 0 ? '+' : ''}${rirDelta}.`, assessTarget(targetId).status);
   saveState();
-  const routine = createRoutine(state.profile.targetMuscle);
-  return { direction, directSets: state.profile.directSets, routine };
+  return clone(program);
 }
 
-function syncFormToState() {
-  const equipment = [...document.querySelectorAll('#equipmentGrid input:checked')].map((input) => input.value);
-  updateConstraints({
-    targetMuscle: el('targetMuscle').value,
-    equipment: equipment.length ? equipment : ['bodyweight'],
-    trainingDays: el('trainingDays').value,
-    sessionDuration: el('sessionDuration').value,
-    directSets: el('directSets').value,
-    indirectSets: el('indirectSets').value,
-    rir: el('rir').value,
-    soreness: el('soreness').value,
-  });
+function getTrainingState(targetId = state.activeTarget) {
+  return {
+    activeTarget: targetId,
+    target: targetInfo(targetId),
+    profile: clone(state.profile),
+    baseline: clone(baselineFor(targetId)),
+    assessment: assessTarget(targetId),
+    program: clone(state.programs[targetId] || null),
+  };
+}
+
+function syncForm() {
+  const targetId = state.activeTarget;
+  const equipment = [...document.querySelectorAll('#equipmentGrid input:checked')].map((node) => node.value);
+  state.profile.goal = $('goal').value;
+  state.profile.trainingDays = clamp($('trainingDays').value, 1, 7);
+  state.profile.sessionDuration = clamp($('sessionDuration').value, 20, 180);
+  state.profile.readiness = clamp($('readiness').value, 1, 10);
+  state.profile.soreness = clamp($('soreness').value, 0, 10);
+  state.profile.sleepHours = clamp($('sleepHours').value, 0, 16);
+  state.profile.equipment = equipment.length ? equipment : ['bodyweight'];
+  state.baselines[targetId] = {
+    frequency: clamp($('targetFrequency').value, 1, 7),
+    directSets: clamp($('directSets').value, 0, 30),
+    indirectSets: clamp($('indirectSets').value, 0, 30),
+    loadKg: clamp($('loadKg').value, 0, 600),
+    reps: clamp($('reps').value, 1, 100),
+    rir: clamp($('rir').value, 0, 5),
+    adherence: clamp($('adherence').value, 0, 100),
+  };
 }
 
 function hydrateForm() {
-  const profile = state.profile;
-  el('targetMuscle').value = profile.targetMuscle;
-  el('trainingDays').value = profile.trainingDays;
-  el('sessionDuration').value = profile.sessionDuration;
-  el('directSets').value = profile.directSets;
-  el('indirectSets').value = profile.indirectSets;
-  el('rir').value = profile.rir;
-  el('soreness').value = profile.soreness;
-  document.querySelectorAll('#equipmentGrid input').forEach((input) => {
-    input.checked = profile.equipment.includes(input.value);
-  });
+  const baseline = baselineFor(state.activeTarget);
+  $('targetSelect').value = state.activeTarget;
+  $('goal').value = state.profile.goal;
+  $('trainingDays').value = state.profile.trainingDays;
+  $('sessionDuration').value = state.profile.sessionDuration;
+  $('readiness').value = state.profile.readiness;
+  $('soreness').value = state.profile.soreness;
+  $('sleepHours').value = state.profile.sleepHours;
+  $('targetFrequency').value = baseline.frequency;
+  $('directSets').value = baseline.directSets;
+  $('indirectSets').value = baseline.indirectSets;
+  $('loadKg').value = baseline.loadKg;
+  $('reps').value = baseline.reps;
+  $('rir').value = baseline.rir;
+  $('adherence').value = baseline.adherence;
+  document.querySelectorAll('#equipmentGrid input').forEach((node) => { node.checked = state.profile.equipment.includes(node.value); });
 }
 
-function addMessage(role, text) {
-  const message = document.createElement('div');
-  message.className = `message ${role}`;
-  const label = role === 'assistant' ? 'ALEXA+' : 'YOU';
-  message.innerHTML = `<span class="message-meta">${label}</span>${escapeHtml(text)}`;
-  el('messages').appendChild(message);
-  el('messages').parentElement.scrollTop = el('messages').parentElement.scrollHeight;
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
+function stateClass(status) {
+  return String(status).toLowerCase().replaceAll('_', '-');
 }
 
 function render() {
-  const assessment = assessMuscleGroup(state.profile.targetMuscle);
-  el('muscleState').textContent = assessment.state;
-  el('effectiveSets').textContent = `${assessment.effectiveSets} effective sets`;
-  el('completedCount').textContent = state.logs.length;
+  const assessment = assessTarget(state.activeTarget);
+  const program = state.programs[state.activeTarget] || null;
+  const badge = $('stateBadge');
+  badge.className = `state-badge ${stateClass(assessment.status)}`;
+  badge.textContent = assessment.status.replaceAll('_', ' ');
+  $('decisionText').textContent = `${assessment.reason} ${assessment.action}`;
+  $('e1rmMetric').textContent = assessment.latestE1rm ? `${assessment.latestE1rm} kg` : '—';
+  $('e1rmDelta').textContent = assessment.trend === null ? 'No performance trend yet' : `${assessment.trend >= 0 ? '+' : ''}${round(assessment.trend * 100, 1)}% vs baseline`;
+  $('exposureMetric').textContent = `${assessment.effectiveSets}`;
+  $('frequencyMetric').textContent = `${assessment.frequency}×`;
+  $('adherenceMetric').textContent = `${Math.round(assessment.adherence * 100)}%`;
+  $('recoveryMetric').textContent = `${assessment.readiness}/10 · ${assessment.soreness}/10`;
+  $('effortMetric').textContent = `${assessment.averageRir} RIR`;
+  $('workoutCount').textContent = `${state.workouts.length} workout${state.workouts.length === 1 ? '' : 's'}`;
 
-  if (!state.routine) {
-    el('routineEmpty').classList.remove('hidden');
-    el('routineCard').classList.add('hidden');
-    return;
+  if (!program) {
+    $('programTitle').textContent = 'No recommendation yet';
+    $('programEmpty').classList.remove('hidden');
+    $('programContent').classList.add('hidden');
+  } else {
+    $('programTitle').textContent = `${TARGETS[program.targetId].label} · ${program.frequency}× weekly`;
+    $('programEmpty').classList.add('hidden');
+    $('programContent').classList.remove('hidden');
+    $('programSummary').innerHTML = `
+      <div class="summary-card"><span>Weekly target</span><strong>${program.weeklySets} sets</strong></div>
+      <div class="summary-card"><span>Frequency</span><strong>${program.frequency} sessions</strong></div>
+      <div class="summary-card"><span>Effort target</span><strong>${program.targetRir} RIR</strong></div>`;
+    $('sessionList').innerHTML = program.sessions.map((session) => `
+      <article class="session">
+        <div class="session-head"><strong>${escapeHtml(session.name)}</strong><span>${session.exercises.reduce((sum, item) => sum + item.sets, 0)} working sets</span></div>
+        ${session.exercises.map((exercise) => `
+          <div class="program-line">
+            <div><strong>${escapeHtml(exercise.name)}</strong><span>${escapeHtml(exercise.role)}</span></div>
+            <div><strong>${exercise.sets} × ${escapeHtml(exercise.reps)}</strong><span>${exercise.rir} RIR</span></div>
+          </div>`).join('')}
+      </article>`).join('');
   }
 
-  el('routineEmpty').classList.add('hidden');
-  el('routineCard').classList.remove('hidden');
-  el('weeklyTarget').textContent = `${state.routine.targetWeeklySets} sets`;
-  el('frequency').textContent = `${state.routine.frequency}× / week`;
-  el('sessionSets').textContent = `${state.routine.setsPerSession} sets`;
-  el('exerciseList').innerHTML = state.routine.exercises.map((exercise) => `
-    <div class="exercise">
-      <div>
-        <strong>${escapeHtml(exercise.name)}</strong>
-        <span>${exercise.sets} sets · ${escapeHtml(exercise.reps)}</span>
-      </div>
-      <div>
-        <strong>${exercise.rir} RIR</strong>
-        <span>target effort</span>
-      </div>
-    </div>
-  `).join('');
+  const logs = state.decisions.slice().reverse().slice(0, 8);
+  $('decisionLog').innerHTML = logs.length ? logs.map((entry) => `
+    <div class="log-entry">
+      <time>${new Date(entry.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</time>
+      <div><strong>${escapeHtml(entry.title)}</strong><p>${escapeHtml(entry.detail)}</p></div>
+      <span>${escapeHtml(TARGETS[entry.targetId]?.label || entry.targetId || 'Global')}</span>
+    </div>`).join('') : '<div class="empty" style="min-height:110px">No decisions yet. Assess a target or let an agent update the state.</div>';
 }
 
-function handleAnalyze() {
-  syncFormToState();
-  const assessment = assessMuscleGroup();
-  const routine = createRoutine();
-  addMessage('user', `${assessment.label} feels behind. I have ${state.profile.trainingDays} training days and about ${state.profile.sessionDuration} minutes per session.`);
-  addMessage(
-    'assistant',
-    `${assessment.label} is ${assessment.state}. Effective exposure is ${assessment.effectiveSets} sets per week. ${assessment.reason}\n\nI set the target to ${routine.targetWeeklySets} weekly sets across ${routine.frequency} focused session${routine.frequency === 1 ? '' : 's'}.`
-  );
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;').replaceAll("'", '&#039;');
 }
 
-function handleComplete() {
-  const before = assessMuscleGroup();
-  const result = completeWorkout();
-  addMessage('user', `Workout complete: ${result.workout.completedSets} of ${result.workout.plannedSets} planned sets.`);
-  const adaptation = result.previousWeeklyTarget === result.nextWeeklyTarget
-    ? `The next weekly target stays at ${result.nextWeeklyTarget} sets.`
-    : `The next weekly target changes from ${result.previousWeeklyTarget} to ${result.nextWeeklyTarget} sets.`;
-  addMessage(
-    'assistant',
-    `Logged. ${before.label} moved from ${before.state} to ${result.newState}. ${adaptation}`
-  );
+function manualAssess() {
+  syncForm();
+  const assessment = assessTarget(state.activeTarget);
+  addDecision(state.activeTarget, `${assessment.status}: assessment`, `${assessment.reason} ${assessment.action}`, assessment.status);
+  createProgram(state.activeTarget, { logDecision: false });
+}
+
+function logDemoWorkout() {
+  syncForm();
+  if (!state.programs[state.activeTarget]) createProgram(state.activeTarget, { logDecision: false });
+  const baseline = baselineFor(state.activeTarget);
+  const info = targetInfo(state.activeTarget);
+  const improvedLoad = info.type === 'lift' && baseline.loadKg > 0 ? round(baseline.loadKg * 1.03, 1) : baseline.loadKg;
+  completeWorkout({
+    targetId: state.activeTarget,
+    loadKg: improvedLoad,
+    reps: baseline.reps,
+    rir: Math.max(2, baseline.rir),
+    readiness: Math.max(7, state.profile.readiness),
+    soreness: Math.min(3, state.profile.soreness),
+    sleepHours: Math.max(7, state.profile.sleepHours),
+    note: 'Successful demo workout',
+  });
 }
 
 function resetDemo() {
   localStorage.removeItem(STORAGE_KEY);
-  state = defaultState();
-  el('messages').innerHTML = '';
+  state = freshState();
   hydrateForm();
   render();
-  addMessage('assistant', 'Which muscle group feels behind? Give me your equipment and current weekly exposure. I will only adjust the targeted work.');
 }
 
 async function registerWebMCPTools() {
-  const modelContext = document.modelContext || navigator.modelContext;
-  const status = el('webmcpStatus');
-
+  const modelContext = document.modelContext;
+  const status = $('webmcpStatus');
   if (!modelContext?.registerTool) {
     status.classList.add('unavailable');
-    status.querySelector('span:last-child').textContent = 'WebMCP unavailable';
+    status.querySelector('span').textContent = 'WebMCP unavailable';
     return;
   }
 
+  const targetEnum = Object.keys(TARGETS);
+  const targetProperty = { type: 'string', enum: targetEnum, description: 'Training target identifier.' };
   const tools = [
     {
-      name: 'assess_muscle_group',
-      description: 'Assess the current training state of a muscle group using local workout exposure and recovery data.',
-      inputSchema: { type: 'object', properties: { muscle: { type: 'string', enum: Object.keys(MUSCLE_LABELS) } } },
+      name: 'get_training_state',
+      description: 'Read the persistent training profile, baseline, assessment, and current program for a target.',
+      inputSchema: { type: 'object', properties: { targetId: targetProperty } },
       annotations: { readOnlyHint: true },
-      execute: ({ muscle } = {}) => assessMuscleGroup(muscle || state.profile.targetMuscle),
+      execute: async ({ targetId } = {}) => JSON.stringify(getTrainingState(targetId || state.activeTarget)),
     },
     {
-      name: 'create_routine',
-      description: 'Create or replace the targeted routine using deterministic local programming logic.',
-      inputSchema: { type: 'object', properties: { muscle: { type: 'string', enum: Object.keys(MUSCLE_LABELS) } } },
+      name: 'set_active_target',
+      description: 'Change which lift or muscle target is active in the Workout Planner interface.',
+      inputSchema: { type: 'object', properties: { targetId: targetProperty }, required: ['targetId'] },
       annotations: { readOnlyHint: false },
-      execute: ({ muscle } = {}) => createRoutine(muscle || state.profile.targetMuscle),
+      execute: async ({ targetId }) => JSON.stringify(setActiveTarget(targetId)),
     },
     {
-      name: 'get_routine',
-      description: 'Return the currently stored workout routine.',
-      inputSchema: { type: 'object', properties: {} },
+      name: 'update_training_profile',
+      description: 'Update persistent schedule, equipment, recovery, performance baseline, volume, frequency, effort, or adherence data for a training target.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          targetId: targetProperty,
+          goal: { type: 'string', enum: ['strength', 'hypertrophy', 'power'] },
+          trainingDays: { type: 'number', minimum: 1, maximum: 7 },
+          sessionDuration: { type: 'number', minimum: 20, maximum: 180 },
+          equipment: { type: 'array', items: { type: 'string' } },
+          frequency: { type: 'number', minimum: 1, maximum: 7 },
+          directSets: { type: 'number', minimum: 0, maximum: 30 },
+          indirectSets: { type: 'number', minimum: 0, maximum: 30 },
+          loadKg: { type: 'number', minimum: 0, maximum: 600 },
+          reps: { type: 'number', minimum: 1, maximum: 100 },
+          rir: { type: 'number', minimum: 0, maximum: 5 },
+          adherence: { type: 'number', minimum: 0, maximum: 100 },
+          readiness: { type: 'number', minimum: 1, maximum: 10 },
+          soreness: { type: 'number', minimum: 0, maximum: 10 },
+          sleepHours: { type: 'number', minimum: 0, maximum: 16 },
+        },
+      },
+      annotations: { readOnlyHint: false },
+      execute: async (input) => JSON.stringify(updateTrainingProfile(input)),
+    },
+    {
+      name: 'assess_target',
+      description: 'Assess a lift or muscle using performance trend, exposure, frequency, adherence, effort, and recovery. Returns a finite training state and rationale.',
+      inputSchema: { type: 'object', properties: { targetId: targetProperty } },
       annotations: { readOnlyHint: true },
-      execute: () => getRoutine(),
+      execute: async ({ targetId } = {}) => JSON.stringify(assessTarget(targetId || state.activeTarget)),
+    },
+    {
+      name: 'create_program',
+      description: 'Build a deterministic focused program for a target from its current assessment and available equipment.',
+      inputSchema: { type: 'object', properties: { targetId: targetProperty } },
+      annotations: { readOnlyHint: false },
+      execute: async ({ targetId } = {}) => JSON.stringify(createProgram(targetId || state.activeTarget)),
+    },
+    {
+      name: 'get_program',
+      description: 'Read the currently stored program for a training target.',
+      inputSchema: { type: 'object', properties: { targetId: targetProperty } },
+      annotations: { readOnlyHint: true },
+      execute: async ({ targetId } = {}) => JSON.stringify(getProgram(targetId || state.activeTarget)),
     },
     {
       name: 'log_set',
-      description: 'Persist one completed set locally for later progress analysis.',
+      description: 'Log one performance set with exercise, load, reps, and RIR. Lift targets automatically calculate estimated one-rep max.',
       inputSchema: {
         type: 'object',
         properties: {
+          targetId: targetProperty,
           exercise: { type: 'string' },
-          reps: { type: 'number' },
-          loadKg: { type: 'number' },
+          loadKg: { type: 'number', minimum: 0, maximum: 600 },
+          reps: { type: 'number', minimum: 1, maximum: 100 },
           rir: { type: 'number', minimum: 0, maximum: 5 },
-          muscle: { type: 'string', enum: Object.keys(MUSCLE_LABELS) },
         },
-        required: ['exercise', 'reps'],
+        required: ['reps'],
       },
       annotations: { readOnlyHint: false },
-      execute: (input) => logSet(input),
+      execute: async (input) => JSON.stringify(logSet(input)),
     },
     {
       name: 'complete_workout',
-      description: 'Complete the active workout, persist results, reassess the target muscle, and adapt the next routine.',
+      description: 'Persist a completed target workout, optionally record performance and recovery, reassess the target, and adapt the next program.',
       inputSchema: {
         type: 'object',
         properties: {
-          completedSets: { type: 'number', minimum: 0 },
-          plannedSets: { type: 'number', minimum: 1 },
+          targetId: targetProperty,
+          plannedSets: { type: 'number', minimum: 1, maximum: 40 },
+          completedSets: { type: 'number', minimum: 0, maximum: 40 },
+          exercise: { type: 'string' },
+          loadKg: { type: 'number', minimum: 0, maximum: 600 },
+          reps: { type: 'number', minimum: 1, maximum: 100 },
           rir: { type: 'number', minimum: 0, maximum: 5 },
+          readiness: { type: 'number', minimum: 1, maximum: 10 },
           soreness: { type: 'number', minimum: 0, maximum: 10 },
-          performanceIndex: { type: 'number' },
+          sleepHours: { type: 'number', minimum: 0, maximum: 16 },
+          note: { type: 'string' },
         },
       },
       annotations: { readOnlyHint: false },
-      execute: (input) => completeWorkout(input),
+      execute: async (input) => JSON.stringify(completeWorkout(input)),
     },
     {
-      name: 'update_constraints',
-      description: 'Update local equipment, schedule, exposure, effort, recovery, or target-muscle constraints.',
+      name: 'record_recovery',
+      description: 'Record readiness, soreness, and sleep for a target so future programming can react to recovery constraints.',
       inputSchema: {
         type: 'object',
         properties: {
-          targetMuscle: { type: 'string', enum: Object.keys(MUSCLE_LABELS) },
-          equipment: { type: 'array', items: { type: 'string' } },
-          trainingDays: { type: 'number', minimum: 1, maximum: 7 },
-          sessionDuration: { type: 'number', minimum: 15, maximum: 180 },
-          directSets: { type: 'number', minimum: 0, maximum: 30 },
-          indirectSets: { type: 'number', minimum: 0, maximum: 30 },
-          rir: { type: 'number', minimum: 0, maximum: 5 },
+          targetId: targetProperty,
+          readiness: { type: 'number', minimum: 1, maximum: 10 },
           soreness: { type: 'number', minimum: 0, maximum: 10 },
+          sleepHours: { type: 'number', minimum: 0, maximum: 16 },
         },
       },
       annotations: { readOnlyHint: false },
-      execute: (input) => updateConstraints(input),
+      execute: async (input) => JSON.stringify(recordRecovery(input)),
     },
     {
       name: 'get_progress',
-      description: 'Return stored progress and the current deterministic assessment for a muscle group.',
-      inputSchema: { type: 'object', properties: { muscle: { type: 'string', enum: Object.keys(MUSCLE_LABELS) } } },
+      description: 'Read recent workouts, performance sets, decisions, assessment, and program for a target.',
+      inputSchema: { type: 'object', properties: { targetId: targetProperty } },
       annotations: { readOnlyHint: true },
-      execute: ({ muscle } = {}) => getProgress(muscle || state.profile.targetMuscle),
+      execute: async ({ targetId } = {}) => JSON.stringify(getProgress(targetId || state.activeTarget)),
     },
     {
-      name: 'adjust_volume',
-      description: 'Explicitly increase, decrease, or hold the reported direct weekly volume and rebuild the routine.',
+      name: 'adjust_program',
+      description: 'Make an explicit bounded change to weekly sets, frequency, or target RIR without replacing the rest of the persistent training state.',
       inputSchema: {
         type: 'object',
         properties: {
-          direction: { type: 'string', enum: ['increase', 'decrease', 'hold'] },
-          sets: { type: 'number', minimum: 1, maximum: 6 },
+          targetId: targetProperty,
+          setDelta: { type: 'number', minimum: -6, maximum: 6 },
+          frequencyDelta: { type: 'number', minimum: -2, maximum: 2 },
+          rirDelta: { type: 'number', minimum: -2, maximum: 2 },
         },
-        required: ['direction'],
       },
       annotations: { readOnlyHint: false },
-      execute: (input) => adjustVolume(input),
+      execute: async (input) => JSON.stringify(adjustProgram(input)),
     },
   ];
 
   try {
-    await Promise.all(tools.map((tool) => modelContext.registerTool(tool)));
+    for (const tool of tools) await modelContext.registerTool(tool);
     status.classList.add('ready');
-    status.querySelector('span:last-child').textContent = `${tools.length} WebMCP tools ready`;
+    status.querySelector('span').textContent = `${tools.length} WebMCP tools`;
   } catch (error) {
     console.error('WebMCP registration failed', error);
     status.classList.add('unavailable');
-    status.querySelector('span:last-child').textContent = 'WebMCP registration failed';
+    status.querySelector('span').textContent = 'WebMCP registration failed';
   }
 }
 
-el('analyzeButton').addEventListener('click', handleAnalyze);
-el('completeButton').addEventListener('click', handleComplete);
-el('resetButton').addEventListener('click', resetDemo);
+Object.entries(TARGETS).forEach(([id, target]) => {
+  const option = document.createElement('option');
+  option.value = id;
+  option.textContent = target.label;
+  $('targetSelect').appendChild(option);
+});
+
+$('targetSelect').addEventListener('change', (event) => setActiveTarget(event.target.value));
+$('assessButton').addEventListener('click', manualAssess);
+$('generateButton').addEventListener('click', () => { syncForm(); createProgram(state.activeTarget); });
+$('demoWorkoutButton').addEventListener('click', logDemoWorkout);
+$('resetButton').addEventListener('click', resetDemo);
 
 hydrateForm();
 render();
-addMessage('assistant', state.routine
-  ? `Welcome back. Your ${MUSCLE_LABELS[state.profile.targetMuscle].toLowerCase()} routine is still stored locally.`
-  : 'Which muscle group feels behind? Give me your equipment and current weekly exposure. I will only adjust the targeted work.');
 registerWebMCPTools();
