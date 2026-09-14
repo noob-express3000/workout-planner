@@ -1,7 +1,8 @@
 /* Deliberately small presentation overrides. Keep the coaching surface quiet. */
 
 .brand {
-  gap: 10px;
+  min-height: 40px;
+  padding-left: 8px;
 }
 
 .brand-mark {
@@ -11,9 +12,9 @@
   place-items: center;
   flex: 0 0 auto;
   color: var(--accent);
-  font-family: "Old English Text MT", "UnifrakturCook", Georgia, serif;
-  font-size: 2rem;
-  font-weight: 700;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.9rem;
+  font-weight: 600;
   line-height: 1;
 }
 
