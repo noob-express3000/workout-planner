@@ -19,29 +19,17 @@ function openLedgerDb() {
   });
 }
 
-function replaceStore(db, storeName, rows) {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, 'readwrite');
-    const store = tx.objectStore(storeName);
-    store.clear();
-    for (const row of rows) store.put(row);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error || new Error(`Could not restore ${storeName}.`));
-    tx.onabort = () => reject(tx.error || new Error(`Restore of ${storeName} was aborted.`));
-  });
-}
-
 function validateLedgerBackup(value) {
   if (!value || typeof value !== 'object') throw new Error('Backup must be a JSON object.');
   if (!Array.isArray(value.entities)) throw new Error('Backup is missing entities[].');
   if (!Array.isArray(value.events)) throw new Error('Backup is missing events[].');
   if (!value.meta || typeof value.meta !== 'object' || Array.isArray(value.meta)) throw new Error('Backup is missing meta{}.');
 
-  const ids = new Set();
+  const entityIds = new Set();
   for (const item of value.entities) {
     if (!item?.id || !item?.type) throw new Error('Every entity requires id and type.');
-    if (ids.has(item.id)) throw new Error(`Duplicate entity id: ${item.id}`);
-    ids.add(item.id);
+    if (entityIds.has(item.id)) throw new Error(`Duplicate entity id: ${item.id}`);
+    entityIds.add(item.id);
   }
 
   const eventIds = new Set();
@@ -60,15 +48,33 @@ function validateLedgerBackup(value) {
   };
 }
 
+function replaceLedger(db, backup) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(['entities', 'events', 'meta'], 'readwrite');
+    const entities = tx.objectStore('entities');
+    const events = tx.objectStore('events');
+    const meta = tx.objectStore('meta');
+
+    entities.clear();
+    events.clear();
+    meta.clear();
+
+    for (const row of backup.entities) entities.put(row);
+    for (const row of backup.events) events.put(row);
+    for (const [key, value] of Object.entries(backup.meta)) meta.put({ key, value });
+
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error('Could not restore ledger.'));
+    tx.onabort = () => reject(tx.error || new Error('Ledger restore was aborted.'));
+  });
+}
+
 async function importLedgerBackup(file) {
   const parsed = JSON.parse(await file.text());
   const backup = validateLedgerBackup(parsed);
   const db = await openLedgerDb();
-
   try {
-    await replaceStore(db, 'entities', backup.entities);
-    await replaceStore(db, 'events', backup.events);
-    await replaceStore(db, 'meta', Object.entries(backup.meta).map(([key, value]) => ({ key, value })));
+    await replaceLedger(db, backup);
   } finally {
     db.close();
   }
@@ -91,8 +97,7 @@ function bindLedgerImport() {
     const file = input.files?.[0];
     if (!file) return;
     try {
-      const confirmed = confirm('Replace the current local ledger with this backup?');
-      if (!confirmed) return;
+      if (!confirm('Replace the current local ledger with this backup?')) return;
       await importLedgerBackup(file);
       location.reload();
     } catch (error) {
