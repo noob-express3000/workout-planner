@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0b0b0d" />
+  <title>Workout Planner</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">SIMULATED ALEXA+ EXPERIENCE</p>
+        <h1>Workout Planner</h1>
+      </div>
+      <div class="status-pill" id="webmcpStatus" title="WebMCP availability">
+        <span class="status-dot"></span>
+        <span>WebMCP checking</span>
+      </div>
+    </header>
+
+    <section class="conversation" aria-live="polite" aria-label="Planner conversation">
+      <div id="messages" class="messages"></div>
+    </section>
+
+    <section class="workspace">
+      <div class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">TRAINING SNAPSHOT</p>
+            <h2>What is lagging?</h2>
+          </div>
+          <button class="text-button" id="resetButton" type="button">Reset demo</button>
+        </div>
+
+        <div class="field-group">
+          <label for="targetMuscle">Target muscle</label>
+          <select id="targetMuscle">
+            <option value="chest">Chest</option>
+            <option value="back">Back</option>
+            <option value="shoulders">Shoulders</option>
+            <option value="biceps">Biceps</option>
+            <option value="triceps">Triceps</option>
+            <option value="quads">Quads</option>
+            <option value="hamstrings">Hamstrings</option>
+            <option value="glutes">Glutes</option>
+            <option value="calves">Calves</option>
+          </select>
+        </div>
+
+        <fieldset class="field-group">
+          <legend>Equipment</legend>
+          <div class="chip-grid" id="equipmentGrid">
+            <label class="chip"><input type="checkbox" value="bodyweight" checked /> Bodyweight</label>
+            <label class="chip"><input type="checkbox" value="dumbbells" checked /> Dumbbells</label>
+            <label class="chip"><input type="checkbox" value="barbell" /> Barbell</label>
+            <label class="chip"><input type="checkbox" value="bench" /> Bench</label>
+            <label class="chip"><input type="checkbox" value="cables" /> Cables</label>
+            <label class="chip"><input type="checkbox" value="pullup" /> Pull-up bar</label>
+            <label class="chip"><input type="checkbox" value="machines" /> Machines</label>
+          </div>
+        </fieldset>
+
+        <div class="metric-grid">
+          <label>Training days<input id="trainingDays" type="number" min="1" max="7" value="3" /></label>
+          <label>Session minutes<input id="sessionDuration" type="number" min="15" max="180" step="5" value="45" /></label>
+          <label>Direct sets / week<input id="directSets" type="number" min="0" max="30" value="4" /></label>
+          <label>Indirect sets / week<input id="indirectSets" type="number" min="0" max="30" value="2" /></label>
+          <label>Typical RIR<input id="rir" type="number" min="0" max="5" value="2" /></label>
+          <label>Soreness 0–10<input id="soreness" type="number" min="0" max="10" value="2" /></label>
+        </div>
+
+        <button class="primary-button" id="analyzeButton" type="button">Analyze and build routine</button>
+      </div>
+
+      <aside class="panel state-panel">
+        <div>
+          <p class="eyebrow">CURRENT STATE</p>
+          <div class="state-row">
+            <strong id="muscleState">—</strong>
+            <span id="effectiveSets">0 effective sets</span>
+          </div>
+        </div>
+
+        <div id="routineEmpty" class="empty-state">
+          The routine appears here after the first assessment.
+        </div>
+
+        <div id="routineCard" class="routine-card hidden">
+          <div class="routine-summary">
+            <div><span>Weekly target</span><strong id="weeklyTarget">—</strong></div>
+            <div><span>Frequency</span><strong id="frequency">—</strong></div>
+            <div><span>Session</span><strong id="sessionSets">—</strong></div>
+          </div>
+          <div id="exerciseList" class="exercise-list"></div>
+          <button class="secondary-button" id="completeButton" type="button">Complete this workout</button>
+        </div>
+
+        <div class="progress-strip">
+          <span>Completed workouts</span>
+          <strong id="completedCount">0</strong>
+        </div>
+      </aside>
+    </section>
+
+    <footer>
+      Local state only. Deterministic training logic. No account required.
+    </footer>
+  </main>
+
+  <script src="./app.js"></script>
+</body>
+</html>
