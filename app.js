@@ -1,6 +1,6 @@
 const DB_NAME = 'workout-planner-ledger';
 const DB_VERSION = 1;
-const LEGACY_KEY = 'workout-planner.v2';
+const SCHEMA_VERSION = 2;
 
 let db;
 let model = { entities: [], events: [], meta: {} };
@@ -8,26 +8,52 @@ let activeTab = 'training';
 let activeView = 'microcycle';
 
 const $ = (id) => document.getElementById(id);
-const uid = (prefix) => `${prefix}-${crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
 const clone = (value) => JSON.parse(JSON.stringify(value));
-const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+const uid = (prefix) => `${prefix}-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
+const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+}[char]));
 
 function dateKey(value) {
-  const date = new Date(value);
+  const date = value instanceof Date ? new Date(value) : new Date(`${String(value).slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(date.getTime())) throw new Error(`Invalid date: ${value}`);
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
 
+function parseDate(value, label = 'date') {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new Error(`${label} must use YYYY-MM-DD.`);
+  }
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime()) || dateKey(date) !== value) throw new Error(`${label} is not a valid date.`);
+  return date;
+}
+
 function addDays(value, days) {
-  const date = new Date(value);
-  date.setDate(date.getDate() + days);
+  const date = value instanceof Date ? new Date(value) : parseDate(dateKey(value));
+  date.setDate(date.getDate() + Number(days));
+  return date;
+}
+
+function inclusiveDays(start, end) {
+  return Math.floor((parseDate(end).getTime() - parseDate(start).getTime()) / 86400000) + 1;
+}
+
+function addMonths(value, months) {
+  const date = parseDate(value);
+  const day = date.getDate();
+  date.setDate(1);
+  date.setMonth(date.getMonth() + months);
+  const last = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  date.setDate(Math.min(day, last));
   return date;
 }
 
 function mondayOf(value = new Date()) {
-  const date = new Date(value);
+  const date = value instanceof Date ? new Date(value) : parseDate(dateKey(value));
   date.setHours(0, 0, 0, 0);
   const day = date.getDay();
   date.setDate(date.getDate() + (day === 0 ? -6 : 1 - day));
@@ -35,11 +61,20 @@ function mondayOf(value = new Date()) {
 }
 
 function formatDate(value, options = { month: 'short', day: 'numeric' }) {
-  return new Intl.DateTimeFormat(undefined, options).format(new Date(value));
+  if (!value) return '—';
+  return new Intl.DateTimeFormat(undefined, options).format(parseDate(dateKey(value)));
 }
 
 function formatRange(start, end) {
+  if (!start || !end) return '—';
   return `${formatDate(start)} – ${formatDate(end)}`;
+}
+
+function pick(object, ...keys) {
+  for (const key of keys) {
+    if (object?.[key] !== undefined) return object[key];
+  }
+  return undefined;
 }
 
 function openDb() {
@@ -47,21 +82,25 @@ function openDb() {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
       const database = request.result;
-      const entities = database.createObjectStore('entities', { keyPath: 'id' });
-      entities.createIndex('type', 'type', { unique: false });
-      entities.createIndex('parentId', 'parentId', { unique: false });
-      entities.createIndex('startDate', 'startDate', { unique: false });
-
-      const events = database.createObjectStore('events', { keyPath: 'id' });
-      events.createIndex('category', 'category', { unique: false });
-      events.createIndex('entityId', 'entityId', { unique: false });
-      events.createIndex('occurredAt', 'occurredAt', { unique: false });
-      events.createIndex('date', 'date', { unique: false });
-
-      database.createObjectStore('meta', { keyPath: 'key' });
+      if (!database.objectStoreNames.contains('entities')) {
+        const entities = database.createObjectStore('entities', { keyPath: 'id' });
+        entities.createIndex('type', 'type', { unique: false });
+        entities.createIndex('parentId', 'parentId', { unique: false });
+        entities.createIndex('startDate', 'startDate', { unique: false });
+      }
+      if (!database.objectStoreNames.contains('events')) {
+        const events = database.createObjectStore('events', { keyPath: 'id' });
+        events.createIndex('category', 'category', { unique: false });
+        events.createIndex('entityId', 'entityId', { unique: false });
+        events.createIndex('occurredAt', 'occurredAt', { unique: false });
+        events.createIndex('date', 'date', { unique: false });
+      }
+      if (!database.objectStoreNames.contains('meta')) {
+        database.createObjectStore('meta', { keyPath: 'key' });
+      }
     };
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onerror = () => reject(request.error || new Error('Could not open the coaching ledger.'));
   });
 }
 
@@ -81,6 +120,7 @@ function storeRequest(storeName, mode, operation) {
 const dbPut = (store, value) => storeRequest(store, 'readwrite', (s) => s.put(clone(value)));
 const dbDelete = (store, key) => storeRequest(store, 'readwrite', (s) => s.delete(key));
 const dbGetAll = (store) => storeRequest(store, 'readonly', (s) => s.getAll());
+const dbClear = (store) => storeRequest(store, 'readwrite', (s) => s.clear());
 
 async function loadModel() {
   const [entities, events, metaRows] = await Promise.all([
@@ -96,223 +136,443 @@ async function loadModel() {
 }
 
 async function setMeta(key, value) {
-  await dbPut('meta', { key, value });
-  model.meta[key] = value;
+  await dbPut('meta', { key, value: clone(value) });
+  model.meta[key] = clone(value);
 }
 
-async function appendEvent(category, action, entityId, data = {}, date = null) {
-  const event = {
+async function migrateAwaySeededDemo() {
+  if (!model.meta.seeded || model.meta.agentOwnedSchemaVersion) return;
+  await Promise.all([dbClear('entities'), dbClear('events'), dbClear('meta')]);
+  await dbPut('meta', { key: 'schemaVersion', value: SCHEMA_VERSION });
+  await dbPut('meta', { key: 'agentOwnedSchemaVersion', value: 1 });
+  await loadModel();
+}
+
+function commitBatch({ entityPuts = [], eventPuts = [], metaPuts = [], entityDeletes = [], eventDeletes = [] }) {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['entities', 'events', 'meta'], 'readwrite');
+    const entityStore = transaction.objectStore('entities');
+    const eventStore = transaction.objectStore('events');
+    const metaStore = transaction.objectStore('meta');
+
+    try {
+      entityPuts.forEach((item) => entityStore.put(clone(item)));
+      eventPuts.forEach((item) => eventStore.put(clone(item)));
+      metaPuts.forEach(({ key, value }) => metaStore.put({ key, value: clone(value) }));
+      entityDeletes.forEach((id) => entityStore.delete(id));
+      eventDeletes.forEach((id) => eventStore.delete(id));
+    } catch (error) {
+      transaction.abort();
+      reject(error);
+      return;
+    }
+
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error || new Error('Could not commit ledger changes.'));
+    transaction.onabort = () => reject(transaction.error || new Error('Ledger transaction aborted.'));
+  });
+}
+
+function makeEvent(category, action, entityId = null, data = {}, date = null, extra = {}) {
+  return {
     id: uid('event'),
     category,
     action,
+    domain: extra.domain || null,
     entityId: entityId || null,
     occurredAt: new Date().toISOString(),
-    date: date || dateKey(new Date()),
+    date: date ? dateKey(date) : dateKey(new Date()),
     data: clone(data),
+    tags: Array.isArray(extra.tags) ? [...extra.tags] : [],
+    note: extra.note || '',
   };
+}
+
+async function appendEvent(category, action, entityId = null, data = {}, date = null, extra = {}) {
+  const event = makeEvent(category, action, entityId, data, date, extra);
   await dbPut('events', event);
   model.events.push(event);
   return clone(event);
 }
 
-function entity(id) { return model.entities.find((item) => item.id === id) || null; }
-function entities(type) { return model.entities.filter((item) => item.type === type); }
+function entity(id) {
+  return model.entities.find((item) => item.id === id) || null;
+}
+
+function entities(type = null) {
+  return model.entities.filter((item) => !type || item.type === type);
+}
+
 function children(parentId, type = null) {
   return model.entities
     .filter((item) => item.parentId === parentId && (!type || item.type === type))
     .sort((a, b) => String(a.startDate || a.date || '').localeCompare(String(b.startDate || b.date || '')));
 }
 
-async function putEntity(record, logChange = false) {
-  const existing = entity(record.id);
-  const next = { ...record, updatedAt: new Date().toISOString() };
-  if (!next.createdAt) next.createdAt = existing?.createdAt || next.updatedAt;
-  if (logChange && existing) {
-    await appendEvent('program', 'entity_updated', record.id, { before: existing, after: next }, next.startDate || next.date);
-  }
-  await dbPut('entities', next);
-  const index = model.entities.findIndex((item) => item.id === next.id);
-  if (index >= 0) model.entities[index] = next;
-  else model.entities.push(next);
-  return clone(next);
-}
-
-function eventList({ category = null, entityId = null, action = null } = {}) {
+function eventList({ category = null, domain = null, entityId = null, action = null, startDate = null, endDate = null } = {}) {
   return model.events
-    .filter((item) => (!category || item.category === category) && (!entityId || item.entityId === entityId) && (!action || item.action === action))
+    .filter((item) => (!category || item.category === category)
+      && (!domain || item.domain === domain || item.action === domain)
+      && (!entityId || item.entityId === entityId)
+      && (!action || item.action === action)
+      && (!startDate || item.date >= startDate)
+      && (!endDate || item.date <= endDate))
     .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
 }
 
-function latestEvent(query) { return eventList(query)[0] || null; }
+function latestEvent(query) {
+  return eventList(query)[0] || null;
+}
+
+function normalizeRange(raw, label) {
+  const startDate = pick(raw, 'startDate', 'start_date');
+  const endDate = pick(raw, 'endDate', 'end_date');
+  if (!startDate || !endDate) throw new Error(`${label} requires startDate and endDate.`);
+  parseDate(startDate, `${label}.startDate`);
+  parseDate(endDate, `${label}.endDate`);
+  if (endDate < startDate) throw new Error(`${label}.endDate cannot be before startDate.`);
+  return { startDate, endDate };
+}
+
+function normalizeActivity(raw, index) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error(`Activity ${index + 1} must be an object.`);
+  const name = String(raw.name || raw.title || raw.type || '').trim();
+  if (!name) throw new Error(`Activity ${index + 1} requires name, title, or type.`);
+  return clone(raw);
+}
+
+function normalizePrescription(raw, parentId) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Prescription must be an object.');
+  const domain = String(raw.domain || '').trim().toLowerCase();
+  if (!domain) throw new Error('Prescription requires a domain.');
+  const now = new Date().toISOString();
+  return {
+    id: raw.id || uid('prescription'),
+    type: 'prescription',
+    parentId: raw.parentId || raw.parent_id || parentId || null,
+    domain,
+    label: raw.label || domain,
+    target: raw.target ?? raw.value ?? null,
+    unit: raw.unit || '',
+    startDate: pick(raw, 'startDate', 'start_date') || null,
+    endDate: pick(raw, 'endDate', 'end_date') || null,
+    metadata: clone(raw.metadata || {}),
+    status: raw.status || 'active',
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function normalizeKpi(raw, parentId) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('KPI must be an object.');
+  const name = String(raw.name || raw.label || '').trim();
+  if (!name) throw new Error('KPI requires a name.');
+  const now = new Date().toISOString();
+  return {
+    id: raw.id || uid('kpi'),
+    type: 'kpi',
+    parentId: raw.parentId || raw.parent_id || parentId || null,
+    name,
+    unit: raw.unit || '',
+    targetValue: raw.targetValue ?? raw.target_value ?? raw.target ?? null,
+    direction: raw.direction || (raw.lowerBetter || raw.lower_better ? 'lower' : 'higher'),
+    metadata: clone(raw.metadata || {}),
+    status: raw.status || 'active',
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function normalizeProgram(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('program must be an object.');
+  const now = new Date().toISOString();
+  const result = [];
+  const programId = raw.id || uid('program');
+  const blocksRaw = Array.isArray(raw.blocks) ? raw.blocks : [];
+  const programRange = raw.startDate || raw.start_date
+    ? normalizeRange(raw, 'program')
+    : blocksRaw.length
+      ? {
+          startDate: blocksRaw.map((item) => pick(item, 'startDate', 'start_date')).filter(Boolean).sort()[0],
+          endDate: blocksRaw.map((item) => pick(item, 'endDate', 'end_date')).filter(Boolean).sort().at(-1),
+        }
+      : { startDate: null, endDate: null };
+
+  result.push({
+    id: programId,
+    type: 'program',
+    parentId: null,
+    title: raw.title || 'Untitled program',
+    objective: raw.objective || raw.goal || '',
+    startDate: programRange.startDate,
+    endDate: programRange.endDate,
+    status: raw.status || 'active',
+    metadata: clone(raw.metadata || {}),
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const addNestedPrescriptions = (items, parentId) => {
+    (Array.isArray(items) ? items : []).forEach((item) => result.push(normalizePrescription(item, parentId)));
+  };
+  const addNestedKpis = (items, parentId) => {
+    (Array.isArray(items) ? items : []).forEach((item) => result.push(normalizeKpi(item, parentId)));
+  };
+
+  addNestedPrescriptions(raw.prescriptions, programId);
+  addNestedKpis(raw.kpis, programId);
+
+  blocksRaw.forEach((blockRaw, blockIndex) => {
+    const range = normalizeRange(blockRaw, `block ${blockIndex + 1}`);
+    const blockId = blockRaw.id || uid('block');
+    result.push({
+      id: blockId,
+      type: 'block',
+      parentId: programId,
+      title: blockRaw.title || `Block ${blockIndex + 1}`,
+      objective: blockRaw.objective || blockRaw.outcome || blockRaw.goal || '',
+      outcome: blockRaw.outcome || blockRaw.objective || '',
+      startDate: range.startDate,
+      endDate: range.endDate,
+      order: blockRaw.order ?? blockIndex + 1,
+      metadata: clone(blockRaw.metadata || {}),
+      status: blockRaw.status || 'active',
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    addNestedPrescriptions(blockRaw.prescriptions, blockId);
+    addNestedKpis(blockRaw.kpis, blockId);
+
+    const mesos = Array.isArray(blockRaw.mesocycles) ? blockRaw.mesocycles : [];
+    mesos.forEach((mesoRaw, mesoIndex) => {
+      const mesoRange = normalizeRange(mesoRaw, `mesocycle ${mesoIndex + 1}`);
+      const mesoId = mesoRaw.id || uid('meso');
+      result.push({
+        id: mesoId,
+        type: 'mesocycle',
+        parentId: blockId,
+        title: mesoRaw.title || `Mesocycle ${mesoIndex + 1}`,
+        objective: mesoRaw.objective || mesoRaw.focus || '',
+        focus: mesoRaw.focus || mesoRaw.objective || '',
+        startDate: mesoRange.startDate,
+        endDate: mesoRange.endDate,
+        order: mesoRaw.order ?? mesoIndex + 1,
+        metadata: clone(mesoRaw.metadata || {}),
+        status: mesoRaw.status || 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const micros = Array.isArray(mesoRaw.microcycles) ? mesoRaw.microcycles : [];
+      micros.forEach((microRaw, microIndex) => {
+        const microRange = normalizeRange(microRaw, `microcycle ${microIndex + 1}`);
+        const microId = microRaw.id || uid('micro');
+        result.push({
+          id: microId,
+          type: 'microcycle',
+          parentId: mesoId,
+          title: microRaw.title || `Microcycle ${microIndex + 1}`,
+          objective: microRaw.objective || '',
+          kind: String(microRaw.kind || microRaw.type_label || 'training').toLowerCase(),
+          startDate: microRange.startDate,
+          endDate: microRange.endDate,
+          order: microRaw.order ?? microIndex + 1,
+          metadata: clone(microRaw.metadata || {}),
+          status: microRaw.status || 'active',
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        const sessions = Array.isArray(microRaw.sessions) ? microRaw.sessions : [];
+        sessions.forEach((sessionRaw, sessionIndex) => {
+          const date = pick(sessionRaw, 'date', 'startDate', 'start_date');
+          if (!date) throw new Error(`Session ${sessionIndex + 1} requires a date.`);
+          parseDate(date, `session ${sessionIndex + 1}.date`);
+          const sessionId = sessionRaw.id || uid('session');
+          const activities = Array.isArray(sessionRaw.activities)
+            ? sessionRaw.activities.map(normalizeActivity)
+            : Array.isArray(sessionRaw.prescriptions)
+              ? sessionRaw.prescriptions.map((item, index) => normalizeActivity({ name: item.exercise || item.name || `Activity ${index + 1}`, ...item }, index))
+              : [];
+          result.push({
+            id: sessionId,
+            type: 'session',
+            parentId: microId,
+            date,
+            startDate: date,
+            title: sessionRaw.title || `Session ${sessionIndex + 1}`,
+            objective: sessionRaw.objective || '',
+            durationMinutes: Number(sessionRaw.durationMinutes ?? sessionRaw.duration_minutes ?? 0) || 0,
+            activities,
+            metadata: clone(sessionRaw.metadata || {}),
+            status: sessionRaw.status || 'planned',
+            createdAt: now,
+            updatedAt: now,
+          });
+        });
+      });
+    });
+  });
+
+  validateEntities(result);
+  return { programId, entities: result };
+}
+
+function validateEntities(records) {
+  const map = new Map(records.map((item) => [item.id, item]));
+  if (map.size !== records.length) throw new Error('Entity ids must be unique.');
+
+  const insideParent = (item, parent, label) => {
+    if (item.startDate && parent.startDate && item.startDate < parent.startDate) {
+      throw new Error(`${label} starts before its parent.`);
+    }
+    if (item.endDate && parent.endDate && item.endDate > parent.endDate) {
+      throw new Error(`${label} ends after its parent.`);
+    }
+  };
+
+  for (const item of records) {
+    if (!item.id || !item.type) throw new Error('Every entity requires id and type.');
+    if (item.startDate) parseDate(item.startDate, `${item.type}.startDate`);
+    if (item.endDate) parseDate(item.endDate, `${item.type}.endDate`);
+
+    if (item.type === 'block') {
+      const parent = map.get(item.parentId);
+      if (!parent || parent.type !== 'program') throw new Error('Every block must belong to a program.');
+      insideParent(item, parent, 'Block');
+      const maxEnd = dateKey(addDays(addMonths(item.startDate, 6), -1));
+      if (item.endDate > maxEnd) throw new Error('Training blocks cannot exceed six calendar months.');
+    }
+
+    if (item.type === 'mesocycle') {
+      const parent = map.get(item.parentId);
+      if (!parent || parent.type !== 'block') throw new Error('Every mesocycle must belong to a block.');
+      insideParent(item, parent, 'Mesocycle');
+      if (inclusiveDays(item.startDate, item.endDate) > 28) throw new Error('Mesocycles cannot exceed four weeks.');
+    }
+
+    if (item.type === 'microcycle') {
+      const parent = map.get(item.parentId);
+      if (!parent || parent.type !== 'mesocycle') throw new Error('Every microcycle must belong to a mesocycle.');
+      insideParent(item, parent, 'Microcycle');
+      if (inclusiveDays(item.startDate, item.endDate) > 7) throw new Error('Microcycles cannot exceed one week.');
+    }
+
+    if (item.type === 'session') {
+      const parent = map.get(item.parentId);
+      if (!parent || parent.type !== 'microcycle') throw new Error('Every session must belong to a microcycle.');
+      if (item.date < parent.startDate || item.date > parent.endDate) throw new Error('Session date must fall inside its microcycle.');
+      if (!Array.isArray(item.activities)) throw new Error('Session activities must be an array.');
+    }
+
+    if (item.type === 'prescription' && item.parentId && !map.has(item.parentId) && !entity(item.parentId)) {
+      throw new Error(`Prescription parent not found: ${item.parentId}`);
+    }
+
+    if (item.type === 'kpi' && item.parentId && !map.has(item.parentId) && !entity(item.parentId)) {
+      throw new Error(`KPI parent not found: ${item.parentId}`);
+    }
+  }
+}
 
 function currentContext() {
   const today = dateKey(new Date());
-  const blocks = entities('block').sort((a, b) => a.startDate.localeCompare(b.startDate));
-  let block = blocks.find((item) => item.startDate <= today && item.endDate >= today) || entity(model.meta.activeBlockId) || blocks[0] || null;
-  if (!block) return { block: null, mesocycle: null, microcycle: null };
+  const programs = entities('program').filter((item) => item.status !== 'deleted');
+  const program = entity(model.meta.activeProgramId)
+    || programs.find((item) => (!item.startDate || item.startDate <= today) && (!item.endDate || item.endDate >= today))
+    || programs.find((item) => item.status === 'active')
+    || programs[0]
+    || null;
 
-  const mesos = children(block.id, 'mesocycle');
-  let mesocycle = mesos.find((item) => item.startDate <= today && item.endDate >= today) || mesos[0] || null;
-  const micros = mesocycle ? children(mesocycle.id, 'microcycle') : [];
-  let microcycle = micros.find((item) => item.startDate <= today && item.endDate >= today) || micros[0] || null;
-  return { block, mesocycle, microcycle };
+  if (!program) return { program: null, block: null, mesocycle: null, microcycle: null };
+
+  const blocks = children(program.id, 'block').filter((item) => item.status !== 'archived');
+  const block = entity(model.meta.activeBlockId)
+    || blocks.find((item) => item.startDate <= today && item.endDate >= today)
+    || blocks[0]
+    || null;
+  if (!block) return { program, block: null, mesocycle: null, microcycle: null };
+
+  const mesos = children(block.id, 'mesocycle').filter((item) => item.status !== 'archived');
+  const mesocycle = mesos.find((item) => item.startDate <= today && item.endDate >= today) || mesos[0] || null;
+  const micros = mesocycle ? children(mesocycle.id, 'microcycle').filter((item) => item.status !== 'archived') : [];
+  const microcycle = micros.find((item) => item.startDate <= today && item.endDate >= today) || micros[0] || null;
+  return { program, block, mesocycle, microcycle };
 }
 
-function makePrescription(exercise, sets, reps, loadKg = null, rir = 2, note = '') {
-  return { exercise, sets, reps, loadKg, rir, note };
+function descendants(rootId) {
+  const found = [];
+  const queue = [rootId];
+  while (queue.length) {
+    const parentId = queue.shift();
+    const next = model.entities.filter((item) => item.parentId === parentId);
+    found.push(...next);
+    queue.push(...next.map((item) => item.id));
+  }
+  return found;
 }
 
-function sessionTemplate(kind, dayIndex) {
-  if (kind === 'deload') {
-    const templates = {
-      0: ['UPPER DELOAD', 45, [makePrescription('Bench press', 3, '5', 55, 4), makePrescription('Row', 2, '8', null, 4)]],
-      1: ['LOWER DELOAD', 45, [makePrescription('Squat', 3, '5', 70, 4), makePrescription('RDL', 2, '6', null, 4)]],
-      3: ['TECHNIQUE', 35, [makePrescription('Bench press', 3, '3', 50, 5), makePrescription('Squat', 3, '3', 60, 5)]],
-    };
-    return templates[dayIndex] || null;
-  }
-
-  if (kind === 'test') {
-    const templates = {
-      0: ['BENCH TEST', 60, [makePrescription('Bench press', 5, '1–3', null, 1, 'Build to a strong technical top set')]],
-      2: ['SQUAT TEST', 70, [makePrescription('Squat', 5, '1–3', null, 1)]],
-      4: ['DEADLIFT TEST', 70, [makePrescription('Deadlift', 4, '1–3', null, 1)]],
-    };
-    return templates[dayIndex] || null;
-  }
-
-  const templates = {
-    0: ['UPPER STRENGTH', 65, [makePrescription('Bench press', 6, '3', 80, 2), makePrescription('Barbell row', 4, '6', null, 2), makePrescription('Triceps', 3, '10', null, 2)]],
-    1: ['LOWER STRENGTH', 75, [makePrescription('Squat', 5, '5', 100, 2), makePrescription('RDL', 4, '6', null, 2), makePrescription('Calves', 3, '12', null, 2)]],
-    2: ['RECOVERY', 30, [makePrescription('Zone 2', 1, '30 min', null, 5), makePrescription('Mobility', 1, '10 min', null, 5)]],
-    3: ['UPPER VOLUME', 60, [makePrescription('Bench press', 5, '8', 65, 3), makePrescription('Pull-up', 4, '6–10', null, 2), makePrescription('Lateral raise', 3, '15', null, 2)]],
-    4: ['HINGE', 70, [makePrescription('Deadlift', 5, '3', 120, 2), makePrescription('Split squat', 3, '8 / leg', null, 2), makePrescription('Hamstring curl', 3, '12', null, 2)]],
+function buildProgramProjection(programId) {
+  const program = entity(programId);
+  if (!program || program.type !== 'program') return null;
+  return {
+    ...clone(program),
+    prescriptions: children(program.id, 'prescription'),
+    kpis: children(program.id, 'kpi'),
+    blocks: children(program.id, 'block').map((block) => ({
+      ...clone(block),
+      prescriptions: children(block.id, 'prescription'),
+      kpis: children(block.id, 'kpi'),
+      mesocycles: children(block.id, 'mesocycle').map((meso) => ({
+        ...clone(meso),
+        microcycles: children(meso.id, 'microcycle').map((micro) => ({
+          ...clone(micro),
+          sessions: children(micro.id, 'session').map(clone),
+        })),
+      })),
+    })),
   };
-  return templates[dayIndex] || null;
 }
 
-async function seedDemo() {
-  if (model.meta.seeded) return;
-  const start = mondayOf(new Date());
-  const blockId = uid('block');
-  const block = {
-    id: blockId,
-    type: 'block',
-    parentId: null,
-    title: 'MAX STRENGTH',
-    outcome: 'strength',
-    startDate: dateKey(start),
-    endDate: dateKey(addDays(start, 83)),
-    goal: 'Increase the major lifts while preserving work capacity.',
-  };
-  await putEntity(block);
-
-  const mesoNames = ['BASE STRENGTH', 'HEAVY STRENGTH', 'PEAK STRENGTH'];
-  const mesoFocus = ['Build repeatable volume and technical consistency.', 'Increase intensity and specific strength.', 'Reduce noise and express strength.'];
-  const microKinds = ['training', 'training', 'training', 'deload', 'training', 'training', 'training', 'deload', 'training', 'training', 'training', 'test'];
-
-  for (let mesoIndex = 0; mesoIndex < 3; mesoIndex += 1) {
-    const mesoStart = addDays(start, mesoIndex * 28);
-    const meso = {
-      id: uid('meso'),
-      type: 'mesocycle',
-      parentId: blockId,
-      title: mesoNames[mesoIndex],
-      focus: mesoFocus[mesoIndex],
-      startDate: dateKey(mesoStart),
-      endDate: dateKey(addDays(mesoStart, 27)),
-      order: mesoIndex + 1,
-    };
-    await putEntity(meso);
-
-    for (let weekIndex = 0; weekIndex < 4; weekIndex += 1) {
-      const absoluteWeek = mesoIndex * 4 + weekIndex;
-      const weekStart = addDays(start, absoluteWeek * 7);
-      const kind = microKinds[absoluteWeek];
-      const micro = {
-        id: uid('micro'),
-        type: 'microcycle',
-        parentId: meso.id,
-        title: kind === 'deload' ? `DELOAD ${mesoIndex + 1}` : kind === 'test' ? 'TEST WEEK' : `WEEK ${absoluteWeek + 1}`,
-        kind,
-        startDate: dateKey(weekStart),
-        endDate: dateKey(addDays(weekStart, 6)),
-        order: absoluteWeek + 1,
-      };
-      await putEntity(micro);
-
-      for (let dayIndex = 0; dayIndex < 7; dayIndex += 1) {
-        const template = sessionTemplate(kind, dayIndex);
-        if (!template) continue;
-        const [title, durationMinutes, prescriptions] = template;
-        await putEntity({
-          id: uid('session'),
-          type: 'session',
-          parentId: micro.id,
-          date: dateKey(addDays(weekStart, dayIndex)),
-          startDate: dateKey(addDays(weekStart, dayIndex)),
-          title,
-          durationMinutes,
-          prescriptions,
-        });
-      }
-    }
-  }
-
-  const kpis = [
-    ['BENCH E1RM', 'kg', 93.3, 110, false],
-    ['SQUAT E1RM', 'kg', 116.7, 140, false],
-    ['DEADLIFT E1RM', 'kg', 140, 170, false],
-    ['1 MILE', 'min', 7.5, 6.75, true],
-  ];
-  for (const [name, unit, initial, target, lowerBetter] of kpis) {
-    const item = await putEntity({ id: uid('kpi'), type: 'kpi', parentId: blockId, name, unit, targetValue: target, lowerBetter });
-    await appendEvent('kpi', 'measurement', item.id, { value: initial, unit }, block.startDate);
-  }
-
-  const profile = {
-    proteinTargetG: 160,
-    sleepTargetHours: 8,
-    bodyMassKg: 80,
-    goals: ['strength'],
-  };
-  await setMeta('profile', profile);
-  await setMeta('activeBlockId', blockId);
-  await setMeta('seeded', true);
-
+function relevantPrescriptions(domain, context = currentContext()) {
+  const parentIds = [context.microcycle?.id, context.mesocycle?.id, context.block?.id, context.program?.id].filter(Boolean);
   const today = dateKey(new Date());
-  await appendEvent('protein', 'intake', null, { grams: 155, targetGrams: profile.proteinTargetG }, today);
-  await appendEvent('sleep', 'sleep', null, { hours: 7.5, targetHours: profile.sleepTargetHours, readiness: 7, soreness: 2 }, today);
+  return entities('prescription')
+    .filter((item) => item.status !== 'archived'
+      && item.domain === domain
+      && (!item.parentId || parentIds.includes(item.parentId))
+      && (!item.startDate || item.startDate <= today)
+      && (!item.endDate || item.endDate >= today))
+    .sort((a, b) => parentIds.indexOf(a.parentId) - parentIds.indexOf(b.parentId));
+}
 
-  const current = currentContext();
-  const todaysSession = current.microcycle ? children(current.microcycle.id, 'session').find((item) => item.date === today) : null;
-  if (todaysSession) {
-    await appendEvent('training', 'session_completed', todaysSession.id, {
-      plannedMinutes: todaysSession.durationMinutes,
-      actualMinutes: todaysSession.durationMinutes,
-      completion: 1,
-      rir: 2,
-      notes: 'Demo completion record.',
-    }, today);
-  }
-
-  try {
-    const legacy = JSON.parse(localStorage.getItem(LEGACY_KEY));
-    if (legacy) await appendEvent('system', 'legacy_import', null, { source: LEGACY_KEY, snapshot: legacy }, today);
-  } catch { /* legacy data is optional */ }
+function kpisForContext(context = currentContext()) {
+  const parentIds = [context.block?.id, context.program?.id].filter(Boolean);
+  return entities('kpi').filter((item) => item.status !== 'archived' && (!item.parentId || parentIds.includes(item.parentId)));
 }
 
 function sessionResult(sessionId) {
-  return latestEvent({ category: 'training', entityId: sessionId, action: 'session_completed' })
-    || latestEvent({ category: 'training', entityId: sessionId, action: 'session_missed' });
+  return latestEvent({ category: 'observation', domain: 'training', entityId: sessionId });
+}
+
+function statusForSession(session) {
+  const result = sessionResult(session.id);
+  if (!result) return { mark: '·', label: 'PLANNED', cls: 'status-planned', duration: session.durationMinutes || 0 };
+  const status = String(result.data.status || '').toLowerCase();
+  const completed = result.data.completed === true || status === 'completed' || status === 'done';
+  const missed = result.data.completed === false || status === 'missed' || status === 'skipped';
+  if (missed) return { mark: '✕', label: 'MISSED', cls: 'status-missed', duration: Number(result.data.actualMinutes ?? result.data.durationMinutes ?? 0) || 0 };
+  if (completed) return { mark: '✓', label: 'DONE', cls: 'status-complete', duration: Number(result.data.actualMinutes ?? result.data.durationMinutes ?? session.durationMinutes ?? 0) || 0 };
+  return { mark: '·', label: 'LOGGED', cls: 'status-planned', duration: Number(result.data.actualMinutes ?? session.durationMinutes ?? 0) || 0 };
 }
 
 function microStats(microId) {
   const sessions = children(microId, 'session');
   const results = sessions.map((item) => sessionResult(item.id)).filter(Boolean);
-  const completed = results.filter((item) => item.action === 'session_completed').length;
+  const completed = sessions.filter((session) => statusForSession(session).label === 'DONE').length;
   const plannedMinutes = sessions.reduce((sum, item) => sum + Number(item.durationMinutes || 0), 0);
-  const actualMinutes = results.reduce((sum, item) => sum + Number(item.data.actualMinutes || 0), 0);
+  const actualMinutes = results.reduce((sum, item) => sum + Number(item.data.actualMinutes ?? item.data.durationMinutes ?? 0), 0);
   return {
     sessions: sessions.length,
     completed,
@@ -334,13 +594,6 @@ function blockMicros(blockId) {
   return children(blockId, 'mesocycle').flatMap((meso) => children(meso.id, 'microcycle'));
 }
 
-function statusForSession(session) {
-  const result = sessionResult(session.id);
-  if (!result) return { mark: '·', label: 'PLANNED', cls: 'status-planned', duration: session.durationMinutes };
-  if (result.action === 'session_missed') return { mark: '✕', label: 'MISSED', cls: 'status-missed', duration: result.data.actualMinutes || 0 };
-  return { mark: '✓', label: 'DONE', cls: 'status-complete', duration: result.data.actualMinutes || session.durationMinutes };
-}
-
 function renderContext() {
   const context = currentContext();
   $('contextBlock').textContent = context.block ? `${context.block.title} · ${formatRange(context.block.startDate, context.block.endDate)}` : '—';
@@ -348,151 +601,205 @@ function renderContext() {
   $('contextMicro').textContent = context.microcycle ? `${context.microcycle.title} · ${formatRange(context.microcycle.startDate, context.microcycle.endDate)}` : '—';
 }
 
+function displayValue(value) {
+  if (value === null || value === undefined || value === '') return '—';
+  if (Array.isArray(value)) return value.map(displayValue).join(', ');
+  if (typeof value === 'object') return Object.entries(value).map(([key, val]) => `${key}: ${displayValue(val)}`).join(' · ');
+  return String(value);
+}
+
+function activityDetails(activity) {
+  const explicit = activity.prescription && typeof activity.prescription === 'object' ? activity.prescription : null;
+  const omit = new Set(['name', 'title', 'type', 'prescription', 'metadata', 'note']);
+  const source = explicit || Object.fromEntries(Object.entries(activity).filter(([key]) => !omit.has(key)));
+  return Object.entries(source)
+    .filter(([, value]) => value !== null && value !== undefined && value !== '')
+    .map(([key, value]) => `${key.replace(/_/g, ' ')} ${displayValue(value)}`)
+    .join(' · ');
+}
+
 function renderMicrocycle(micro) {
-  if (!micro) return '<div class="empty">NO MICROCYCLE</div>';
+  if (!micro) {
+    return '<div class="empty"><strong>NO ACTIVE PROGRAM</strong><br>The coaching agent has not written a microcycle yet.</div>';
+  }
+
   const sessions = children(micro.id, 'session');
   const byDate = Object.fromEntries(sessions.map((item) => [item.date, item]));
   const stats = microStats(micro.id);
-  let html = `<div class="view-head"><div><span>${esc(micro.kind.toUpperCase())}</span><h2>${esc(micro.title)}</h2></div><small>${esc(formatRange(micro.startDate, micro.endDate))}</small></div>`;
+  let html = `<div class="view-head"><div><span>${esc(String(micro.kind || 'training').toUpperCase())}</span><h2>${esc(micro.title)}</h2></div><small>${esc(formatRange(micro.startDate, micro.endDate))}</small></div>`;
   html += `<div class="summary-line"><div><span>SESSIONS</span><strong>${stats.completed}/${stats.sessions}</strong></div><div><span>ADHERENCE</span><strong>${Math.round(stats.adherence * 100)}%</strong></div><div><span>PLANNED TIME</span><strong>${stats.plannedMinutes} min</strong></div><div><span>LOGGED TIME</span><strong>${stats.actualMinutes} min</strong></div></div>`;
   html += '<div class="week-grid">';
-  for (let day = 0; day < 7; day += 1) {
-    const date = dateKey(addDays(new Date(`${micro.startDate}T00:00:00`), day));
+
+  const start = parseDate(micro.startDate);
+  const days = inclusiveDays(micro.startDate, micro.endDate);
+  for (let day = 0; day < Math.min(7, days); day += 1) {
+    const date = dateKey(addDays(start, day));
     const session = byDate[date];
-    html += `<article class="day"><div class="day-head"><strong>${esc(new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(new Date(`${date}T00:00:00`)).toUpperCase())}</strong><span>${esc(formatDate(date))}</span></div>`;
+    const weekday = new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(parseDate(date)).toUpperCase();
+    html += `<article class="day"><div class="day-head"><strong>${esc(weekday)}</strong><span>${esc(formatDate(date))}</span></div>`;
     if (!session) {
-      html += '<p class="empty">REST</p></article>';
+      html += '<p class="empty">Rest</p></article>';
       continue;
     }
+
     const status = statusForSession(session);
     html += `<h3 class="session-title">${esc(session.title)}</h3>`;
-    for (const work of session.prescriptions || []) {
-      const load = work.loadKg ? `${work.loadKg} kg · ` : '';
-      html += `<div class="work-row"><strong>${esc(work.exercise)}</strong><span>${esc(`${work.sets} × ${work.reps} · ${load}RIR ${work.rir}`)}</span>${work.note ? `<span>${esc(work.note)}</span>` : ''}</div>`;
+    for (const activity of session.activities || []) {
+      const name = activity.name || activity.title || activity.type || 'Activity';
+      const details = activityDetails(activity);
+      html += `<div class="work-row"><strong>${esc(name)}</strong>${details ? `<span>${esc(details)}</span>` : ''}${activity.note ? `<span>${esc(activity.note)}</span>` : ''}</div>`;
     }
-    html += `<div class="day-status ${status.cls}"><strong>${status.mark}</strong><span>${status.label} · ${status.duration} min</span></div></article>`;
+    html += `<div class="day-status ${status.cls}"><strong>${status.mark}</strong><span>${status.label}${status.duration ? ` · ${status.duration} min` : ''}</span></div></article>`;
   }
+
   html += '</div>';
   return html;
 }
 
 function renderMesocycle(meso) {
-  if (!meso) return '<div class="empty">NO MESOCYCLE</div>';
+  if (!meso) return '<div class="empty">No mesocycle has been authored yet.</div>';
   const micros = children(meso.id, 'microcycle');
   const total = mesoStats(meso.id);
-  let html = `<div class="view-head"><div><span>MESOCYCLE</span><h2>${esc(meso.title)}</h2></div><small>${esc(meso.focus || '')}</small></div>`;
+  let html = `<div class="view-head"><div><span>MESOCYCLE</span><h2>${esc(meso.title)}</h2></div><small>${esc(meso.objective || meso.focus || '')}</small></div>`;
   html += `<div class="summary-line"><div><span>WEEKS</span><strong>${total.weeks}</strong></div><div><span>SESSIONS</span><strong>${total.completed}/${total.sessions}</strong></div><div><span>ADHERENCE</span><strong>${Math.round(total.adherence * 100)}%</strong></div></div>`;
-  html += '<table class="scale-table"><thead><tr><th>WEEK</th><th>TYPE</th><th>DATES</th><th>SESSIONS</th><th>ADHERENCE</th><th>TIME</th></tr></thead><tbody>';
+  html += '<table class="scale-table"><thead><tr><th>MICROCYCLE</th><th>TYPE</th><th>DATES</th><th>SESSIONS</th><th>ADHERENCE</th><th>TIME</th></tr></thead><tbody>';
   for (const micro of micros) {
     const stats = microStats(micro.id);
     const current = currentContext().microcycle?.id === micro.id ? ' current-row' : '';
-    const deload = micro.kind === 'deload' ? ' deload-row' : '';
-    html += `<tr class="${current}${deload}"><td><strong>${esc(micro.title)}</strong></td><td>${esc(micro.kind.toUpperCase())}</td><td>${esc(formatRange(micro.startDate, micro.endDate))}</td><td>${stats.completed}/${stats.sessions}</td><td>${Math.round(stats.adherence * 100)}%</td><td>${stats.actualMinutes}/${stats.plannedMinutes} min</td></tr>`;
+    const deload = String(micro.kind).toLowerCase() === 'deload' ? ' deload-row' : '';
+    html += `<tr class="${current}${deload}"><td><strong>${esc(micro.title)}</strong></td><td>${esc(String(micro.kind || 'training').toUpperCase())}</td><td>${esc(formatRange(micro.startDate, micro.endDate))}</td><td>${stats.completed}/${stats.sessions}</td><td>${Math.round(stats.adherence * 100)}%</td><td>${stats.actualMinutes}/${stats.plannedMinutes} min</td></tr>`;
   }
   html += '</tbody></table>';
   return html;
 }
 
 function renderDeload(block) {
-  if (!block) return '<div class="empty">NO TRAINING BLOCK</div>';
-  const deloads = blockMicros(block.id).filter((item) => item.kind === 'deload');
-  let html = `<div class="view-head"><div><span>DELOADS</span><h2>${esc(block.title)}</h2></div><small>${deloads.length} scheduled</small></div>`;
-  if (!deloads.length) return html + '<div class="empty">NO DELOADS SCHEDULED</div>';
-  html += '<table class="scale-table"><thead><tr><th>DELOAD</th><th>DATES</th><th>SESSIONS</th><th>PLANNED TIME</th><th>STRUCTURE</th></tr></thead><tbody>';
+  if (!block) return '<div class="empty">No training block has been authored yet.</div>';
+  const deloads = blockMicros(block.id).filter((item) => String(item.kind).toLowerCase() === 'deload');
+  let html = `<div class="view-head"><div><span>DELOADS</span><h2>${esc(block.title)}</h2></div><small>${deloads.length} recorded</small></div>`;
+  if (!deloads.length) return html + '<div class="empty">No deload microcycles in this block.</div>';
+  html += '<table class="scale-table"><thead><tr><th>DELOAD</th><th>DATES</th><th>SESSIONS</th><th>PLANNED TIME</th><th>CONTENTS</th></tr></thead><tbody>';
   for (const micro of deloads) {
     const sessions = children(micro.id, 'session');
     const stats = microStats(micro.id);
-    const structure = sessions.map((item) => item.title).join(' / ');
-    html += `<tr><td><strong>${esc(micro.title)}</strong></td><td>${esc(formatRange(micro.startDate, micro.endDate))}</td><td>${stats.sessions}</td><td>${stats.plannedMinutes} min</td><td>${esc(structure)}</td></tr>`;
+    html += `<tr><td><strong>${esc(micro.title)}</strong></td><td>${esc(formatRange(micro.startDate, micro.endDate))}</td><td>${stats.sessions}</td><td>${stats.plannedMinutes} min</td><td>${esc(sessions.map((item) => item.title).join(' / ') || '—')}</td></tr>`;
   }
   html += '</tbody></table>';
   return html;
 }
 
 function renderBlock(block) {
-  if (!block) return '<div class="empty">NO TRAINING BLOCK</div>';
+  if (!block) return '<div class="empty">No training block has been authored yet.</div>';
   const mesos = children(block.id, 'mesocycle');
-  let html = `<div class="view-head"><div><span>TRAINING BLOCK · ${esc(block.outcome.toUpperCase())}</span><h2>${esc(block.title)}</h2></div><small>${esc(formatRange(block.startDate, block.endDate))}</small></div>`;
-  html += `<div class="summary-line"><div><span>PRIMARY OUTCOME</span><strong>${esc(block.outcome.toUpperCase())}</strong></div><div><span>DURATION</span><strong>${blockMicros(block.id).length} weeks</strong></div><div><span>GOAL</span><strong>${esc(block.goal)}</strong></div></div>`;
+  let html = `<div class="view-head"><div><span>TRAINING BLOCK</span><h2>${esc(block.title)}</h2></div><small>${esc(formatRange(block.startDate, block.endDate))}</small></div>`;
+  html += `<div class="summary-line"><div><span>PRIMARY OBJECTIVE</span><strong>${esc(block.objective || block.outcome || '—')}</strong></div><div><span>DURATION</span><strong>${blockMicros(block.id).length} microcycles</strong></div></div>`;
   html += '<div class="block-bar">';
   for (const meso of mesos) {
     const micros = children(meso.id, 'microcycle');
     const stats = mesoStats(meso.id);
-    html += `<section class="block-segment"><span>MESOCYCLE ${meso.order}</span><strong>${esc(meso.title)}</strong><span>${esc(formatRange(meso.startDate, meso.endDate))}</span><ul><li>${esc(meso.focus)}</li><li>${micros.length} microcycles</li><li>${stats.sessions} planned sessions</li><li>${Math.round(stats.adherence * 100)}% adherence</li></ul></section>`;
+    html += `<section class="block-segment"><span>MESOCYCLE ${esc(meso.order ?? '')}</span><strong>${esc(meso.title)}</strong><span>${esc(formatRange(meso.startDate, meso.endDate))}</span><ul><li>${esc(meso.objective || meso.focus || 'No objective supplied.')}</li><li>${micros.length} microcycles</li><li>${stats.sessions} planned sessions</li><li>${Math.round(stats.adherence * 100)}% adherence</li></ul></section>`;
   }
   html += '</div>';
   return html;
 }
 
 function eventSummary(event) {
-  const data = event.data || {};
-  if (event.category === 'training') return `${data.actualMinutes ?? 0} min · completion ${Math.round((data.completion ?? 0) * 100)}% · RIR ${data.rir ?? '—'}`;
-  if (event.category === 'protein') return `${data.grams ?? '—'} g / ${data.targetGrams ?? model.meta.profile?.proteinTargetG ?? '—'} g`;
-  if (event.category === 'sleep') return `${data.hours ?? '—'} h · readiness ${data.readiness ?? '—'} · soreness ${data.soreness ?? '—'}`;
-  if (event.category === 'kpi') return `${data.value ?? '—'} ${data.unit ?? ''}`;
-  if (event.category === 'program') return 'Program entity changed; previous and new values retained.';
+  if (event.category === 'observation') return `${event.domain || event.action}: ${displayValue(event.data)}`;
+  if (event.category === 'measurement') return `${displayValue(event.data.value)} ${event.data.unit || ''}`;
+  if (event.category === 'program') return event.data?.summary || event.action;
   if (event.category === 'system') return event.action;
-  return JSON.stringify(data);
+  return displayValue(event.data);
 }
 
 function renderLedger() {
   const list = [...model.events].sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
-  let html = `<div class="view-head"><div><span>APPEND-ONLY HISTORY</span><h2>LEDGER</h2></div><small>${list.length} records</small></div>`;
+  let html = `<div class="view-head"><div><span>HISTORICAL RECORD</span><h2>LEDGER</h2></div><small>${list.length} records</small></div>`;
+  if (!list.length) return html + '<div class="empty">The ledger is empty. Conversation and lived data will populate it over time.</div>';
   html += '<table class="ledger-table"><thead><tr><th>TIME</th><th>DOMAIN</th><th>ACTION</th><th>DATA</th><th></th></tr></thead><tbody>';
-  for (const event of list.slice(0, 200)) {
-    html += `<tr><td>${esc(new Date(event.occurredAt).toLocaleString())}</td><td>${esc(event.category.toUpperCase())}</td><td>${esc(event.action)}</td><td>${esc(eventSummary(event))}</td><td><button class="ledger-delete" data-delete-event="${esc(event.id)}">DELETE</button></td></tr>`;
+  for (const event of list.slice(0, 300)) {
+    const domain = event.domain || event.category;
+    html += `<tr><td>${esc(new Date(event.occurredAt).toLocaleString())}</td><td>${esc(String(domain).toUpperCase())}</td><td>${esc(event.action)}</td><td>${esc(eventSummary(event))}</td><td><button class="ledger-delete" data-delete-event="${esc(event.id)}">DELETE</button></td></tr>`;
   }
   html += '</tbody></table>';
   return html;
 }
 
-function weekDates(micro) {
-  return micro ? Array.from({ length: 7 }, (_, index) => dateKey(addDays(new Date(`${micro.startDate}T00:00:00`), index))) : [];
+function datesForCurrentWeek(micro) {
+  if (micro) {
+    const start = parseDate(micro.startDate);
+    return Array.from({ length: Math.min(7, inclusiveDays(micro.startDate, micro.endDate)) }, (_, index) => dateKey(addDays(start, index)));
+  }
+  const start = mondayOf(new Date());
+  return Array.from({ length: 7 }, (_, index) => dateKey(addDays(start, index)));
 }
 
-function latestDailyEvent(category, date) {
-  return eventList({ category }).find((item) => item.date === date) || null;
+function latestDailyObservation(domain, date) {
+  return eventList({ category: 'observation', domain }).find((item) => item.date === date) || null;
+}
+
+function targetNumber(prescription) {
+  const value = prescription?.target;
+  if (typeof value === 'number') return value;
+  if (value && typeof value === 'object') {
+    const candidate = value.grams ?? value.hours ?? value.value ?? value.target;
+    return Number.isFinite(Number(candidate)) ? Number(candidate) : null;
+  }
+  return Number.isFinite(Number(value)) ? Number(value) : null;
 }
 
 function renderProtein(micro) {
-  const target = model.meta.profile?.proteinTargetG ?? 0;
-  let html = `<div class="view-head"><div><span>COACHING PRESCRIPTION</span><h2>PROTEIN</h2></div><small>${target} g / day</small></div>`;
+  const prescription = relevantPrescriptions('protein')[0] || null;
+  const target = targetNumber(prescription);
+  const unit = prescription?.unit || 'g';
+  let html = `<div class="view-head"><div><span>AGENT-AUTHORED PRESCRIPTION</span><h2>PROTEIN</h2></div><small>${prescription ? esc(`${displayValue(prescription.target)} ${unit}`) : 'No prescription'}</small></div>`;
+  if (!prescription && !eventList({ category: 'observation', domain: 'protein' }).length) {
+    return html + '<div class="empty">No protein target or observations yet.</div>';
+  }
   html += '<table class="domain-table"><thead><tr><th>DAY</th><th>DATE</th><th>TARGET</th><th>LOGGED</th><th>STATUS</th></tr></thead><tbody>';
-  for (const date of weekDates(micro)) {
-    const event = latestDailyEvent('protein', date);
-    const grams = event?.data.grams;
-    const status = grams == null ? '—' : grams >= target * 0.9 ? '✓' : '✕';
-    html += `<tr><td>${esc(new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(new Date(`${date}T00:00:00`)).toUpperCase())}</td><td>${esc(formatDate(date))}</td><td>${target} g</td><td>${grams ?? '—'}${grams != null ? ' g' : ''}</td><td class="${status === '✓' ? 'status-complete' : status === '✕' ? 'status-missed' : ''}">${status}</td></tr>`;
+  for (const date of datesForCurrentWeek(micro)) {
+    const event = latestDailyObservation('protein', date);
+    const logged = Number(event?.data.grams ?? event?.data.value);
+    const hasLogged = Number.isFinite(logged);
+    const status = target == null || !hasLogged ? '—' : logged >= target * 0.9 ? '✓' : '✕';
+    html += `<tr><td>${esc(new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(parseDate(date)).toUpperCase())}</td><td>${esc(formatDate(date))}</td><td>${prescription ? esc(`${displayValue(prescription.target)} ${unit}`) : '—'}</td><td>${hasLogged ? `${logged} ${esc(event?.data.unit || unit)}` : '—'}</td><td class="${status === '✓' ? 'status-complete' : status === '✕' ? 'status-missed' : ''}">${status}</td></tr>`;
   }
   html += '</tbody></table>';
   return html;
 }
 
 function renderSleep(micro) {
-  const target = model.meta.profile?.sleepTargetHours ?? 0;
-  let html = `<div class="view-head"><div><span>RECOVERY LEDGER</span><h2>SLEEP</h2></div><small>${target} h target</small></div>`;
-  html += '<table class="domain-table"><thead><tr><th>DAY</th><th>DATE</th><th>TARGET</th><th>SLEEP</th><th>READINESS</th><th>SORENESS</th></tr></thead><tbody>';
-  for (const date of weekDates(micro)) {
-    const event = latestDailyEvent('sleep', date);
-    html += `<tr><td>${esc(new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(new Date(`${date}T00:00:00`)).toUpperCase())}</td><td>${esc(formatDate(date))}</td><td>${target} h</td><td>${event?.data.hours ?? '—'}</td><td>${event?.data.readiness ?? '—'}</td><td>${event?.data.soreness ?? '—'}</td></tr>`;
+  const prescription = relevantPrescriptions('sleep')[0] || null;
+  const target = targetNumber(prescription);
+  const unit = prescription?.unit || 'h';
+  let html = `<div class="view-head"><div><span>RECOVERY LEDGER</span><h2>SLEEP</h2></div><small>${prescription ? esc(`${displayValue(prescription.target)} ${unit}`) : 'No prescription'}</small></div>`;
+  if (!prescription && !eventList({ category: 'observation', domain: 'sleep' }).length) {
+    return html + '<div class="empty">No sleep prescription or observations yet.</div>';
+  }
+  html += '<table class="domain-table"><thead><tr><th>DAY</th><th>DATE</th><th>TARGET</th><th>SLEEP</th><th>READINESS</th><th>NOTES</th></tr></thead><tbody>';
+  for (const date of datesForCurrentWeek(micro)) {
+    const event = latestDailyObservation('sleep', date);
+    const hours = event?.data.hours ?? event?.data.value ?? '—';
+    html += `<tr><td>${esc(new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(parseDate(date)).toUpperCase())}</td><td>${esc(formatDate(date))}</td><td>${prescription ? esc(`${displayValue(prescription.target)} ${unit}`) : '—'}</td><td>${esc(hours)}</td><td>${esc(event?.data.readiness ?? '—')}</td><td>${esc(event?.note || event?.data.notes || '')}</td></tr>`;
   }
   html += '</tbody></table>';
   return html;
 }
 
 function renderKpis(block) {
-  const kpis = entities('kpi').filter((item) => !block || item.parentId === block.id);
-  let html = `<div class="view-head"><div><span>PERFORMANCE OUTCOMES</span><h2>KPI</h2></div><small>${kpis.length} tracked</small></div>`;
+  const context = currentContext();
+  const kpis = kpisForContext(context);
+  let html = `<div class="view-head"><div><span>AGENT-DEFINED PERFORMANCE OUTCOMES</span><h2>KPI</h2></div><small>${kpis.length} tracked</small></div>`;
+  if (!kpis.length) return html + '<div class="empty">No KPI schema has been defined yet.</div>';
   html += '<table class="domain-table"><thead><tr><th>KPI</th><th>START</th><th>CURRENT</th><th>CHANGE</th><th>TARGET</th><th>LAST TEST</th></tr></thead><tbody>';
   for (const kpi of kpis) {
-    const measurements = eventList({ category: 'kpi', entityId: kpi.id, action: 'measurement' }).sort((a, b) => a.occurredAt.localeCompare(b.occurredAt));
+    const measurements = eventList({ category: 'measurement', entityId: kpi.id }).sort((a, b) => a.occurredAt.localeCompare(b.occurredAt));
     const first = measurements[0];
     const last = measurements.at(-1);
     const start = Number(first?.data.value);
     const current = Number(last?.data.value);
     const change = Number.isFinite(start) && Number.isFinite(current) ? current - start : null;
     const sign = change > 0 ? '+' : '';
-    html += `<tr><td><strong>${esc(kpi.name)}</strong><span>${esc(kpi.unit)}</span></td><td>${first ? `${start} ${esc(kpi.unit)}` : '—'}</td><td>${last ? `${current} ${esc(kpi.unit)}` : '—'}</td><td>${change == null ? '—' : `${sign}${Math.round(change * 100) / 100} ${esc(kpi.unit)}`}</td><td>${kpi.targetValue} ${esc(kpi.unit)}</td><td>${last ? esc(formatDate(last.date)) : '—'}</td></tr>`;
+    html += `<tr><td><strong>${esc(kpi.name)}</strong><span>${esc(kpi.unit)}</span></td><td>${first ? `${start} ${esc(kpi.unit)}` : '—'}</td><td>${last ? `${current} ${esc(kpi.unit)}` : '—'}</td><td>${change == null ? '—' : `${sign}${Math.round(change * 100) / 100} ${esc(kpi.unit)}`}</td><td>${kpi.targetValue ?? '—'} ${esc(kpi.unit)}</td><td>${last ? esc(formatDate(last.date)) : '—'}</td></tr>`;
   }
   html += '</tbody></table>';
   return html;
@@ -523,124 +830,252 @@ async function refresh() {
   render();
 }
 
-async function createTrainingBlock({ title, outcome, start_date, weeks = 12, mesocycle_weeks = 4, goal = '' }) {
-  const weekCount = Math.max(1, Math.min(26, Number(weeks)));
-  const mesoWeeks = Math.max(1, Math.min(4, Number(mesocycle_weeks)));
-  const start = mondayOf(new Date(`${start_date}T00:00:00`));
-  const block = await putEntity({
-    id: uid('block'), type: 'block', parentId: null, title, outcome,
-    startDate: dateKey(start), endDate: dateKey(addDays(start, weekCount * 7 - 1)), goal,
-  });
-  let mesoNumber = 0;
-  for (let offset = 0; offset < weekCount; offset += mesoWeeks) {
-    mesoNumber += 1;
-    const length = Math.min(mesoWeeks, weekCount - offset);
-    const mesoStart = addDays(start, offset * 7);
-    const meso = await putEntity({
-      id: uid('meso'), type: 'mesocycle', parentId: block.id,
-      title: `MESOCYCLE ${mesoNumber}`, focus: outcome,
-      startDate: dateKey(mesoStart), endDate: dateKey(addDays(mesoStart, length * 7 - 1)), order: mesoNumber,
+async function applyProgram({ program, activate = true }) {
+  const normalized = normalizeProgram(program);
+  const oldProgram = entity(model.meta.activeProgramId);
+  const entityPuts = [...normalized.entities];
+  const eventPuts = [];
+
+  if (oldProgram && oldProgram.id !== normalized.programId && oldProgram.status === 'active') {
+    const archived = { ...oldProgram, status: 'superseded', updatedAt: new Date().toISOString() };
+    entityPuts.push(archived);
+    eventPuts.push(makeEvent('program', 'program_superseded', oldProgram.id, {
+      before: oldProgram,
+      after: archived,
+      summary: `Superseded ${oldProgram.title}.`,
+    }));
+  }
+
+  eventPuts.push(makeEvent('program', 'program_applied', normalized.programId, {
+    summary: `Applied ${normalized.entities.filter((item) => item.type === 'block').length} block(s), ${normalized.entities.filter((item) => item.type === 'mesocycle').length} mesocycle(s), ${normalized.entities.filter((item) => item.type === 'microcycle').length} microcycle(s), and ${normalized.entities.filter((item) => item.type === 'session').length} session(s).`,
+    entityIds: normalized.entities.map((item) => item.id),
+  }, normalized.entities[0].startDate || dateKey(new Date())));
+
+  const metaPuts = [
+    { key: 'schemaVersion', value: SCHEMA_VERSION },
+    { key: 'agentOwnedSchemaVersion', value: 1 },
+  ];
+  if (activate) {
+    metaPuts.push({ key: 'activeProgramId', value: normalized.programId });
+    const firstBlock = normalized.entities.find((item) => item.type === 'block');
+    metaPuts.push({ key: 'activeBlockId', value: firstBlock?.id || null });
+  }
+
+  await commitBatch({ entityPuts, eventPuts, metaPuts });
+  await refresh();
+  return buildProgramProjection(normalized.programId);
+}
+
+async function patchProgram({ patches }) {
+  if (!Array.isArray(patches) || !patches.length) throw new Error('patches must contain at least one change.');
+  const protectedKeys = new Set(['id', 'type', 'parentId', 'createdAt']);
+  const finalMap = new Map(model.entities.map((item) => [item.id, clone(item)]));
+  const eventPuts = [];
+  const entityPuts = [];
+
+  for (const change of patches) {
+    const current = finalMap.get(change.entity_id || change.entityId);
+    if (!current) throw new Error(`Program entity not found: ${change.entity_id || change.entityId}`);
+    const clean = Object.fromEntries(Object.entries(change.patch || {}).filter(([key]) => !protectedKeys.has(key)));
+    const updated = { ...current, ...clone(clean), updatedAt: new Date().toISOString() };
+    finalMap.set(updated.id, updated);
+    entityPuts.push(updated);
+    eventPuts.push(makeEvent('program', 'entity_updated', updated.id, {
+      before: current,
+      after: updated,
+      summary: `Updated ${updated.type} ${updated.title || updated.name || updated.id}.`,
+    }, updated.date || updated.startDate || dateKey(new Date())));
+  }
+
+  validateEntities([...finalMap.values()].filter((item) => ['program', 'block', 'mesocycle', 'microcycle', 'session', 'prescription', 'kpi'].includes(item.type)));
+  await commitBatch({ entityPuts, eventPuts });
+  await refresh();
+  return entityPuts.map(clone);
+}
+
+async function appendObservations({ observations }) {
+  if (!Array.isArray(observations) || !observations.length) throw new Error('observations must contain at least one item.');
+  const eventPuts = observations.map((raw) => {
+    const domain = String(raw.domain || '').trim().toLowerCase();
+    if (!domain) throw new Error('Every observation requires a domain.');
+    const entityId = raw.entity_id || raw.entityId || null;
+    if (entityId && !entity(entityId)) throw new Error(`Observation entity not found: ${entityId}`);
+    const date = raw.date || dateKey(new Date());
+    parseDate(date, 'observation.date');
+    return makeEvent('observation', domain, entityId, raw.data || {}, date, {
+      domain,
+      tags: raw.tags,
+      note: raw.note || '',
     });
-    for (let week = 0; week < length; week += 1) {
-      const weekStart = addDays(mesoStart, week * 7);
-      await putEntity({
-        id: uid('micro'), type: 'microcycle', parentId: meso.id,
-        title: `WEEK ${offset + week + 1}`, kind: 'training',
-        startDate: dateKey(weekStart), endDate: dateKey(addDays(weekStart, 6)), order: offset + week + 1,
-      });
+  });
+  await commitBatch({ eventPuts });
+  await refresh();
+  return eventPuts.map(clone);
+}
+
+async function appendMeasurements({ measurements }) {
+  if (!Array.isArray(measurements) || !measurements.length) throw new Error('measurements must contain at least one item.');
+  const eventPuts = measurements.map((raw) => {
+    const kpiId = raw.kpi_id || raw.kpiId || raw.entity_id || raw.entityId;
+    const kpi = entity(kpiId);
+    if (!kpi || kpi.type !== 'kpi') throw new Error(`KPI not found: ${kpiId}`);
+    const value = Number(raw.value);
+    if (!Number.isFinite(value)) throw new Error(`Measurement for ${kpi.name} requires a finite value.`);
+    const date = raw.date || dateKey(new Date());
+    parseDate(date, 'measurement.date');
+    return makeEvent('measurement', 'measurement', kpi.id, {
+      value,
+      unit: raw.unit || kpi.unit || '',
+      metadata: clone(raw.metadata || {}),
+    }, date, { domain: 'kpi', note: raw.note || '' });
+  });
+  await commitBatch({ eventPuts });
+  await refresh();
+  return eventPuts.map(clone);
+}
+
+async function setPrescriptions({ prescriptions }) {
+  if (!Array.isArray(prescriptions) || !prescriptions.length) throw new Error('prescriptions must contain at least one item.');
+  const context = currentContext();
+  const entityPuts = [];
+  const eventPuts = [];
+
+  for (const raw of prescriptions) {
+    const parentId = raw.parent_id || raw.parentId || context.block?.id || context.program?.id || null;
+    const normalized = normalizePrescription(raw, parentId);
+    const existing = raw.id
+      ? entity(raw.id)
+      : entities('prescription').find((item) => item.domain === normalized.domain && item.parentId === normalized.parentId && item.status !== 'archived');
+
+    if (existing) {
+      const updated = {
+        ...existing,
+        ...normalized,
+        id: existing.id,
+        createdAt: existing.createdAt,
+        updatedAt: new Date().toISOString(),
+      };
+      entityPuts.push(updated);
+      eventPuts.push(makeEvent('program', 'prescription_updated', existing.id, {
+        before: existing,
+        after: updated,
+        summary: `Updated ${updated.domain} prescription.`,
+      }, updated.startDate || dateKey(new Date())));
+    } else {
+      entityPuts.push(normalized);
+      eventPuts.push(makeEvent('program', 'prescription_created', normalized.id, {
+        after: normalized,
+        summary: `Created ${normalized.domain} prescription.`,
+      }, normalized.startDate || dateKey(new Date())));
     }
   }
-  await appendEvent('program', 'block_created', block.id, { title, outcome, weeks: weekCount }, block.startDate);
-  await setMeta('activeBlockId', block.id);
+
+  validateEntities([...model.entities.filter((item) => !entityPuts.some((next) => next.id === item.id)), ...entityPuts]);
+  await commitBatch({ entityPuts, eventPuts });
   await refresh();
-  return block;
+  return entityPuts.map(clone);
 }
 
-async function addSession({ microcycle_id, date, title, duration_minutes, prescriptions = [] }) {
-  const micro = entity(microcycle_id);
-  if (!micro || micro.type !== 'microcycle') throw new Error('microcycle_id must identify an existing microcycle.');
-  if (date < micro.startDate || date > micro.endDate) throw new Error('Session date must fall inside the microcycle.');
-  const session = await putEntity({
-    id: uid('session'), type: 'session', parentId: micro.id,
-    date, startDate: date, title, durationMinutes: Number(duration_minutes) || 0,
-    prescriptions: Array.isArray(prescriptions) ? prescriptions : [],
-  });
-  await appendEvent('program', 'session_created', session.id, { session }, date);
-  await refresh();
-  return session;
-}
-
-async function updateProgramEntity({ entity_id, patch }) {
-  const current = entity(entity_id);
-  if (!current) throw new Error('Program entity not found.');
-  const protectedKeys = new Set(['id', 'type', 'parentId', 'createdAt']);
-  const clean = Object.fromEntries(Object.entries(patch || {}).filter(([key]) => !protectedKeys.has(key)));
-  const updated = await putEntity({ ...current, ...clean }, true);
-  await refresh();
-  return updated;
-}
-
-async function logTrainingSession({ session_id, completed = true, actual_minutes = 0, completion = 1, rir = null, notes = '' }) {
-  const session = entity(session_id);
-  if (!session || session.type !== 'session') throw new Error('session_id must identify an existing session.');
-  const event = await appendEvent('training', completed ? 'session_completed' : 'session_missed', session.id, {
-    plannedMinutes: session.durationMinutes,
-    actualMinutes: Number(actual_minutes) || 0,
-    completion: Math.max(0, Math.min(1, Number(completion))),
-    rir: rir == null ? null : Number(rir),
-    notes,
-  }, session.date);
-  await refresh();
-  return event;
-}
-
-async function logProtein({ date, grams }) {
-  const event = await appendEvent('protein', 'intake', null, { grams: Number(grams), targetGrams: model.meta.profile?.proteinTargetG ?? null }, date);
-  await refresh();
-  return event;
-}
-
-async function logSleep({ date, hours, readiness = null, soreness = null }) {
-  const event = await appendEvent('sleep', 'sleep', null, {
-    hours: Number(hours), targetHours: model.meta.profile?.sleepTargetHours ?? null,
-    readiness: readiness == null ? null : Number(readiness),
-    soreness: soreness == null ? null : Number(soreness),
-  }, date);
-  await refresh();
-  return event;
-}
-
-async function logKpi({ kpi_id, value, date = dateKey(new Date()) }) {
-  const kpi = entity(kpi_id);
-  if (!kpi || kpi.type !== 'kpi') throw new Error('kpi_id must identify an existing KPI.');
-  const event = await appendEvent('kpi', 'measurement', kpi.id, { value: Number(value), unit: kpi.unit }, date);
-  await refresh();
-  return event;
-}
-
-async function updateProfile(patch) {
-  const before = clone(model.meta.profile || {});
-  const after = { ...before, ...(patch || {}) };
-  await setMeta('profile', after);
-  await appendEvent('program', 'profile_updated', null, { before, after });
-  await refresh();
-  return after;
-}
-
-async function deleteLedgerEntry(id) {
-  const existing = model.events.find((item) => item.id === id);
-  if (!existing) throw new Error('Ledger entry not found.');
-  await dbDelete('events', id);
-  await refresh();
-  return { deleted: id };
-}
-
-function programView(scope = 'microcycle') {
+async function setKpiSchema({ kpis, replace = false }) {
+  if (!Array.isArray(kpis)) throw new Error('kpis must be an array.');
   const context = currentContext();
-  if (scope === 'block') return { block: context.block, mesocycles: context.block ? children(context.block.id, 'mesocycle').map((meso) => ({ ...meso, microcycles: children(meso.id, 'microcycle') })) : [] };
-  if (scope === 'mesocycle') return { mesocycle: context.mesocycle, microcycles: context.mesocycle ? children(context.mesocycle.id, 'microcycle').map((micro) => ({ ...micro, stats: microStats(micro.id) })) : [] };
-  if (scope === 'deload') return { deloads: context.block ? blockMicros(context.block.id).filter((micro) => micro.kind === 'deload').map((micro) => ({ ...micro, sessions: children(micro.id, 'session') })) : [] };
-  return { microcycle: context.microcycle, sessions: context.microcycle ? children(context.microcycle.id, 'session').map((session) => ({ ...session, result: sessionResult(session.id) })) : [] };
+  const parentId = context.block?.id || context.program?.id || null;
+  if (!parentId && kpis.length) throw new Error('A program must exist before KPIs can be attached.');
+
+  const entityPuts = [];
+  const eventPuts = [];
+  if (replace) {
+    for (const existing of kpisForContext(context)) {
+      const archived = { ...existing, status: 'archived', updatedAt: new Date().toISOString() };
+      entityPuts.push(archived);
+      eventPuts.push(makeEvent('program', 'kpi_archived', existing.id, { before: existing, after: archived, summary: `Archived KPI ${existing.name}.` }));
+    }
+  }
+
+  for (const raw of kpis) {
+    const existing = raw.id ? entity(raw.id) : null;
+    const normalized = normalizeKpi(raw, raw.parent_id || raw.parentId || parentId);
+    if (existing) {
+      const updated = { ...existing, ...normalized, id: existing.id, createdAt: existing.createdAt, updatedAt: new Date().toISOString() };
+      entityPuts.push(updated);
+      eventPuts.push(makeEvent('program', 'kpi_updated', existing.id, { before: existing, after: updated, summary: `Updated KPI ${updated.name}.` }));
+    } else {
+      entityPuts.push(normalized);
+      eventPuts.push(makeEvent('program', 'kpi_created', normalized.id, { after: normalized, summary: `Created KPI ${normalized.name}.` }));
+    }
+  }
+
+  await commitBatch({ entityPuts, eventPuts });
+  await refresh();
+  return entityPuts.filter((item) => item.type === 'kpi').map(clone);
+}
+
+function getCoachingState({ scope = 'current' } = {}) {
+  const context = currentContext();
+  if (scope === 'full') return clone(model);
+  if (scope === 'program') {
+    return {
+      activeProgramId: context.program?.id || null,
+      program: context.program ? buildProgramProjection(context.program.id) : null,
+    };
+  }
+  return {
+    context: clone(context),
+    program: context.program ? buildProgramProjection(context.program.id) : null,
+    prescriptions: entities('prescription').filter((item) => item.status !== 'archived'),
+    kpis: kpisForContext(context),
+    recentHistory: eventList().slice(0, 50),
+  };
+}
+
+function getHistory({ domains = [], start_date = null, end_date = null, limit = 200 } = {}) {
+  if (start_date) parseDate(start_date, 'start_date');
+  if (end_date) parseDate(end_date, 'end_date');
+  const wanted = Array.isArray(domains) ? domains.map((item) => String(item).toLowerCase()) : [];
+  return eventList({ startDate: start_date, endDate: end_date })
+    .filter((item) => !wanted.length || wanted.includes(String(item.domain || item.category).toLowerCase()))
+    .slice(0, Math.max(1, Math.min(1000, Number(limit) || 200)))
+    .map(clone);
+}
+
+async function setActiveProgram({ program_id, block_id = null }) {
+  const program = entity(program_id);
+  if (!program || program.type !== 'program') throw new Error('program_id must identify a program.');
+  const metaPuts = [{ key: 'activeProgramId', value: program.id }];
+  if (block_id) {
+    const block = entity(block_id);
+    if (!block || block.type !== 'block' || block.parentId !== program.id) throw new Error('block_id must identify a block inside the program.');
+    metaPuts.push({ key: 'activeBlockId', value: block.id });
+  } else {
+    metaPuts.push({ key: 'activeBlockId', value: children(program.id, 'block')[0]?.id || null });
+  }
+  await commitBatch({ metaPuts, eventPuts: [makeEvent('program', 'active_program_changed', program.id, { summary: `Activated ${program.title}.` })] });
+  await refresh();
+  return getCoachingState({ scope: 'current' });
+}
+
+async function deleteRecord({ record_type, id, cascade = false }) {
+  if (record_type === 'event') {
+    if (!model.events.some((item) => item.id === id)) throw new Error('Ledger event not found.');
+    await commitBatch({ eventDeletes: [id] });
+    await refresh();
+    return { deleted: id, record_type: 'event' };
+  }
+
+  if (record_type !== 'entity') throw new Error('record_type must be event or entity.');
+  const target = entity(id);
+  if (!target) throw new Error('Entity not found.');
+  const nested = descendants(id);
+  if (nested.length && !cascade) throw new Error('Entity has children. Set cascade=true to delete the entire subtree explicitly.');
+  const entityIds = [id, ...nested.map((item) => item.id)];
+  const relatedEvents = model.events.filter((item) => item.entityId && entityIds.includes(item.entityId)).map((item) => item.id);
+  await commitBatch({
+    entityDeletes: entityIds,
+    eventDeletes: relatedEvents,
+    eventPuts: [makeEvent('system', 'entity_deleted', null, { deletedEntityIds: entityIds, relatedEventCount: relatedEvents.length })],
+  });
+  await refresh();
+  return { deleted: entityIds, relatedEventsDeleted: relatedEvents.length };
 }
 
 function toolResult(data) {
@@ -658,73 +1093,152 @@ async function registerWebMcp() {
 
   const tools = [
     {
-      name: 'get_program_view', description: 'Read the current training hierarchy at microcycle, mesocycle, deload, or block scale.',
-      inputSchema: { type: 'object', properties: { scope: { type: 'string', enum: ['microcycle', 'mesocycle', 'deload', 'block'] } } },
-      annotations: { readOnlyHint: true }, execute: async ({ scope = 'microcycle' }) => toolResult(programView(scope)),
+      name: 'get_coaching_state',
+      description: 'Read the current agent-authored coaching state or the full local coaching model.',
+      inputSchema: { type: 'object', properties: { scope: { type: 'string', enum: ['current', 'program', 'full'] } } },
+      annotations: { readOnlyHint: true },
+      execute: async (input = {}) => toolResult(getCoachingState(input)),
     },
     {
-      name: 'get_training_ledger', description: 'Read stored training, protein, sleep, KPI, program, and system history.',
-      inputSchema: { type: 'object', properties: { category: { type: 'string' }, limit: { type: 'number' } } },
-      annotations: { readOnlyHint: true }, execute: async ({ category = null, limit = 100 }) => toolResult(eventList({ category }).slice(0, Math.max(1, Math.min(500, Number(limit))))),
+      name: 'get_history',
+      description: 'Read the growing coaching ledger, optionally filtered by domain and date range.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          domains: { type: 'array', items: { type: 'string' } },
+          start_date: { type: ['string', 'null'] },
+          end_date: { type: ['string', 'null'] },
+          limit: { type: 'number' },
+        },
+      },
+      annotations: { readOnlyHint: true },
+      execute: async (input = {}) => toolResult(getHistory(input)),
     },
     {
-      name: 'get_coaching_profile', description: 'Read persistent coaching targets such as protein, sleep, body mass, and goals.',
-      inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true }, execute: async () => toolResult(model.meta.profile || {}),
+      name: 'apply_program',
+      description: 'Author an entire coaching program from conversation. The site validates and stores the supplied structure but does not invent programming decisions.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          program: { type: 'object', additionalProperties: true },
+          activate: { type: 'boolean' },
+        },
+        required: ['program'],
+      },
+      annotations: { readOnlyHint: false },
+      execute: async (input) => toolResult(await applyProgram(input)),
     },
     {
-      name: 'update_coaching_profile', description: 'Update coaching targets while preserving the previous value in the program ledger.',
-      inputSchema: { type: 'object', properties: { patch: { type: 'object', additionalProperties: true } }, required: ['patch'] },
-      annotations: { readOnlyHint: false }, execute: async ({ patch }) => toolResult(await updateProfile(patch)),
+      name: 'patch_program',
+      description: 'Patch one or more future/current program entities while preserving before/after changes in the ledger.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          patches: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                entity_id: { type: 'string' },
+                patch: { type: 'object', additionalProperties: true },
+              },
+              required: ['entity_id', 'patch'],
+            },
+          },
+        },
+        required: ['patches'],
+      },
+      annotations: { readOnlyHint: false },
+      execute: async (input) => toolResult(await patchProgram(input)),
     },
     {
-      name: 'create_training_block', description: 'Create a new training block and its mesocycle/microcycle hierarchy.',
-      inputSchema: { type: 'object', properties: { title: { type: 'string' }, outcome: { type: 'string' }, start_date: { type: 'string' }, weeks: { type: 'number' }, mesocycle_weeks: { type: 'number' }, goal: { type: 'string' } }, required: ['title', 'outcome', 'start_date'] },
-      annotations: { readOnlyHint: false }, execute: async (input) => toolResult(await createTrainingBlock(input)),
+      name: 'append_observation',
+      description: 'Append lived data to the coaching ledger, such as a completed session, protein intake, sleep, soreness, readiness, pain, or any other relevant observation.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          observations: { type: 'array', items: { type: 'object', additionalProperties: true } },
+        },
+        required: ['observations'],
+      },
+      annotations: { readOnlyHint: false },
+      execute: async (input) => toolResult(await appendObservations(input)),
     },
     {
-      name: 'add_training_session', description: 'Add a prescribed session to an existing microcycle.',
-      inputSchema: { type: 'object', properties: { microcycle_id: { type: 'string' }, date: { type: 'string' }, title: { type: 'string' }, duration_minutes: { type: 'number' }, prescriptions: { type: 'array', items: { type: 'object', additionalProperties: true } } }, required: ['microcycle_id', 'date', 'title', 'duration_minutes'] },
-      annotations: { readOnlyHint: false }, execute: async (input) => toolResult(await addSession(input)),
+      name: 'append_measurement',
+      description: 'Append one or more measurements for KPIs defined by the agent.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          measurements: { type: 'array', items: { type: 'object', additionalProperties: true } },
+        },
+        required: ['measurements'],
+      },
+      annotations: { readOnlyHint: false },
+      execute: async (input) => toolResult(await appendMeasurements(input)),
     },
     {
-      name: 'update_program_entity', description: 'Change a block, mesocycle, microcycle, session, or KPI while logging before/after state.',
-      inputSchema: { type: 'object', properties: { entity_id: { type: 'string' }, patch: { type: 'object', additionalProperties: true } }, required: ['entity_id', 'patch'] },
-      annotations: { readOnlyHint: false }, execute: async (input) => toolResult(await updateProgramEntity(input)),
+      name: 'set_prescriptions',
+      description: 'Set or update coaching prescriptions such as protein, sleep, recovery, or other agent-defined targets.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          prescriptions: { type: 'array', items: { type: 'object', additionalProperties: true } },
+        },
+        required: ['prescriptions'],
+      },
+      annotations: { readOnlyHint: false },
+      execute: async (input) => toolResult(await setPrescriptions(input)),
     },
     {
-      name: 'log_training_session', description: 'Record completion, duration, effort, and notes for a prescribed session.',
-      inputSchema: { type: 'object', properties: { session_id: { type: 'string' }, completed: { type: 'boolean' }, actual_minutes: { type: 'number' }, completion: { type: 'number' }, rir: { type: ['number', 'null'] }, notes: { type: 'string' } }, required: ['session_id'] },
-      annotations: { readOnlyHint: false }, execute: async (input) => toolResult(await logTrainingSession(input)),
+      name: 'set_kpi_schema',
+      description: 'Define or revise the user-specific KPI schema. KPIs are not hardcoded by the website.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          kpis: { type: 'array', items: { type: 'object', additionalProperties: true } },
+          replace: { type: 'boolean' },
+        },
+        required: ['kpis'],
+      },
+      annotations: { readOnlyHint: false },
+      execute: async (input) => toolResult(await setKpiSchema(input)),
     },
     {
-      name: 'log_protein', description: 'Append a daily protein intake record.',
-      inputSchema: { type: 'object', properties: { date: { type: 'string' }, grams: { type: 'number' } }, required: ['date', 'grams'] },
-      annotations: { readOnlyHint: false }, execute: async (input) => toolResult(await logProtein(input)),
+      name: 'set_active_program',
+      description: 'Select which stored program and optional block should be projected in the interface.',
+      inputSchema: {
+        type: 'object',
+        properties: { program_id: { type: 'string' }, block_id: { type: ['string', 'null'] } },
+        required: ['program_id'],
+      },
+      annotations: { readOnlyHint: false },
+      execute: async (input) => toolResult(await setActiveProgram(input)),
     },
     {
-      name: 'log_sleep', description: 'Append a sleep and recovery record.',
-      inputSchema: { type: 'object', properties: { date: { type: 'string' }, hours: { type: 'number' }, readiness: { type: ['number', 'null'] }, soreness: { type: ['number', 'null'] } }, required: ['date', 'hours'] },
-      annotations: { readOnlyHint: false }, execute: async (input) => toolResult(await logSleep(input)),
-    },
-    {
-      name: 'log_kpi', description: 'Append a performance KPI measurement.',
-      inputSchema: { type: 'object', properties: { kpi_id: { type: 'string' }, value: { type: 'number' }, date: { type: 'string' } }, required: ['kpi_id', 'value'] },
-      annotations: { readOnlyHint: false }, execute: async (input) => toolResult(await logKpi(input)),
-    },
-    {
-      name: 'delete_ledger_entry', description: 'Permanently delete one explicitly selected ledger record.',
-      inputSchema: { type: 'object', properties: { event_id: { type: 'string' } }, required: ['event_id'] },
-      annotations: { readOnlyHint: false, destructiveHint: true }, execute: async ({ event_id }) => toolResult(await deleteLedgerEntry(event_id)),
+      name: 'delete_record',
+      description: 'Permanently delete an explicitly selected event or program entity. Entity subtrees require cascade=true.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          record_type: { type: 'string', enum: ['event', 'entity'] },
+          id: { type: 'string' },
+          cascade: { type: 'boolean' },
+        },
+        required: ['record_type', 'id'],
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true },
+      execute: async (input) => toolResult(await deleteRecord(input)),
     },
   ];
 
   try {
-    await Promise.all(tools.map((tool) => modelContext.registerTool(tool)));
+    for (const tool of tools) await modelContext.registerTool(tool);
     status.className = 'ready';
     status.innerHTML = `<i></i><span>${tools.length} WebMCP tools ready</span>`;
   } catch (error) {
     status.className = 'unavailable';
-    status.innerHTML = `<i></i><span>WebMCP registration failed</span>`;
+    status.innerHTML = '<i></i><span>WebMCP registration failed</span>';
     console.error(error);
   }
 }
@@ -748,11 +1262,15 @@ function bindUi() {
     const button = event.target.closest('[data-delete-event]');
     if (!button) return;
     if (!confirm('Delete this ledger record permanently?')) return;
-    await deleteLedgerEntry(button.dataset.deleteEvent);
+    await deleteRecord({ record_type: 'event', id: button.dataset.deleteEvent });
   });
 
   $('exportButton').addEventListener('click', () => {
-    const blob = new Blob([JSON.stringify({ schemaVersion: 1, exportedAt: new Date().toISOString(), ...model }, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify({
+      schemaVersion: SCHEMA_VERSION,
+      exportedAt: new Date().toISOString(),
+      ...model,
+    }, null, 2)], { type: 'application/json' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = `workout-planner-ledger-${dateKey(new Date())}.json`;
@@ -761,18 +1279,20 @@ function bindUi() {
   });
 
   $('resetButton').addEventListener('click', () => {
-    if (!confirm('Delete the entire local Workout Planner ledger and restore demo data?')) return;
+    if (!confirm('Permanently delete the entire local coaching ledger?')) return;
     db.close();
     const request = indexedDB.deleteDatabase(DB_NAME);
     request.onsuccess = () => location.reload();
-    request.onerror = () => alert('Could not reset IndexedDB.');
+    request.onerror = () => alert('Could not delete the local ledger.');
   });
 }
 
 async function start() {
   db = await openDb();
   await loadModel();
-  await seedDemo();
+  await migrateAwaySeededDemo();
+  if (!model.meta.schemaVersion) await setMeta('schemaVersion', SCHEMA_VERSION);
+  if (!model.meta.agentOwnedSchemaVersion) await setMeta('agentOwnedSchemaVersion', 1);
   await loadModel();
   bindUi();
   render();
@@ -780,16 +1300,16 @@ async function start() {
 
   window.WorkoutPlanner = {
     get model() { return clone(model); },
-    programView,
-    createTrainingBlock,
-    addSession,
-    updateProgramEntity,
-    logTrainingSession,
-    logProtein,
-    logSleep,
-    logKpi,
-    updateProfile,
-    deleteLedgerEntry,
+    getCoachingState,
+    getHistory,
+    applyProgram,
+    patchProgram,
+    appendObservations,
+    appendMeasurements,
+    setPrescriptions,
+    setKpiSchema,
+    setActiveProgram,
+    deleteRecord,
   };
 }
 
