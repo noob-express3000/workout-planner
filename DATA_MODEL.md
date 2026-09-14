@@ -1,51 +1,80 @@
 # Workout Planner data model
 
-Workout Planner is a persistent coaching ledger. The current program is only one projection of the user's history; observations and program changes are retained until the user explicitly deletes them.
+Workout Planner is a persistent coaching ledger. The website renders structured coaching state authored by an external agent and retains historical observations and program mutations until explicitly deleted.
 
 ## Storage
 
-The browser uses IndexedDB database `workout-planner-ledger`.
+IndexedDB database: `workout-planner-ledger`.
 
-Three object stores are used:
+Object stores:
 
-- `entities` — current structural program objects.
-- `events` — append-only observations and changes.
-- `meta` — small global values such as coaching targets and the active training block.
+- `entities` — current structured coaching state
+- `events` — historical observations and changes
+- `meta` — active context and schema metadata
 
-This avoids treating a long-lived coaching history as a single `localStorage` document.
+The model intentionally separates **what the plan is now** from **what happened over time**.
 
-## Program hierarchy
+## Entity hierarchy
 
 ```text
-Training Block
-└── Mesocycle (maximum 4 weeks by convention)
-    └── Microcycle (maximum 1 week)
-        └── Session
-            └── Prescription[]
+Program
+└── Block
+    └── Mesocycle
+        └── Microcycle
+            └── Session
+                └── activities[]
 ```
 
-A deload is not a parallel hierarchy. It is a microcycle whose `kind` is `deload`. Test weeks use `kind: test`.
+Additional entities may attach to a program or block:
 
-A training block has one dominant outcome, for example strength, endurance, speed, agility, flexibility, power, or hypertrophy. The block may contain supporting work, but its primary outcome remains explicit.
+```text
+Prescription
+KPI
+```
 
-### `block`
+### Program
 
 ```js
 {
   id,
-  type: "block",
+  type: "program",
   parentId: null,
   title,
-  outcome,
-  goal,
+  objective,
   startDate,
   endDate,
+  status,
+  metadata,
   createdAt,
   updatedAt
 }
 ```
 
-### `mesocycle`
+A program is a container for one or more training blocks. The site does not decide the objective.
+
+### Block
+
+```js
+{
+  id,
+  type: "block",
+  parentId: programId,
+  title,
+  objective,
+  outcome,
+  startDate,
+  endDate,
+  order,
+  metadata,
+  status,
+  createdAt,
+  updatedAt
+}
+```
+
+A block may last at most six calendar months.
+
+### Mesocycle
 
 ```js
 {
@@ -53,16 +82,20 @@ A training block has one dominant outcome, for example strength, endurance, spee
   type: "mesocycle",
   parentId: blockId,
   title,
-  focus,
+  objective,
   startDate,
   endDate,
   order,
+  metadata,
+  status,
   createdAt,
   updatedAt
 }
 ```
 
-### `microcycle`
+A mesocycle may last at most four weeks.
+
+### Microcycle
 
 ```js
 {
@@ -70,16 +103,23 @@ A training block has one dominant outcome, for example strength, endurance, spee
   type: "microcycle",
   parentId: mesocycleId,
   title,
-  kind: "training" | "deload" | "test",
+  objective,
+  kind,
   startDate,
   endDate,
   order,
+  metadata,
+  status,
   createdAt,
   updatedAt
 }
 ```
 
-### `session`
+A microcycle may last at most one week.
+
+`kind` is agent-authored. `deload` is recognized by the UI as a useful projection, but it is not a required training philosophy.
+
+### Session
 
 ```js
 {
@@ -88,113 +128,247 @@ A training block has one dominant outcome, for example strength, endurance, spee
   parentId: microcycleId,
   date,
   title,
+  objective,
   durationMinutes,
-  prescriptions: [
-    {
-      exercise,
-      sets,
-      reps,
-      loadKg,
-      rir,
-      note
-    }
-  ],
+  activities: [],
+  metadata,
+  status,
   createdAt,
   updatedAt
 }
 ```
 
-### `kpi`
+Sessions must fall within their parent microcycle.
+
+### Activity
+
+Activities intentionally have an open schema.
+
+Strength example:
+
+```js
+{
+  type: "strength",
+  name: "Bench press",
+  prescription: {
+    sets: 5,
+    reps: 5,
+    loadKg: 80,
+    rir: 2
+  }
+}
+```
+
+Running example:
+
+```js
+{
+  type: "running",
+  name: "Intervals",
+  prescription: {
+    repetitions: 6,
+    distanceMeters: 400,
+    targetSeconds: 92
+  }
+}
+```
+
+Boxing example:
+
+```js
+{
+  type: "boxing",
+  name: "Bag rounds",
+  prescription: {
+    rounds: 8,
+    workSeconds: 180,
+    restSeconds: 60
+  }
+}
+```
+
+The site stores and renders the activity. It does not decide which activity is correct.
+
+### Prescription
+
+```js
+{
+  id,
+  type: "prescription",
+  parentId,
+  domain,
+  label,
+  target,
+  unit,
+  startDate,
+  endDate,
+  metadata,
+  status,
+  createdAt,
+  updatedAt
+}
+```
+
+`domain` is open-ended. Current UI projections understand `protein` and `sleep`, while an agent can also store recovery or other coaching targets.
+
+### KPI
 
 ```js
 {
   id,
   type: "kpi",
-  parentId: blockId,
+  parentId,
   name,
   unit,
   targetValue,
-  lowerBetter,
+  direction,
+  metadata,
+  status,
   createdAt,
   updatedAt
 }
 ```
 
-## Ledger events
+KPIs are agent-defined. The website contains no predefined benchmark list.
 
-Collected observations are appended to `events` instead of replacing earlier observations.
+## Event ledger
+
+Events append lived data and historical mutations without replacing earlier records.
 
 ```js
 {
   id,
-  category: "training" | "protein" | "sleep" | "kpi" | "program" | "system",
+  category,
   action,
+  domain,
   entityId,
   occurredAt,
   date,
-  data
+  data,
+  tags,
+  note
 }
+```
+
+Current event categories:
+
+```text
+observation
+measurement
+program
+system
 ```
 
 Examples:
 
 ```text
-training / session_completed
-training / session_missed
-protein  / intake
-sleep    / sleep
-kpi      / measurement
-program  / entity_updated
-program  / profile_updated
-program  / block_created
-program  / session_created
-system   / legacy_import
+observation / training
+observation / protein
+observation / sleep
+observation / pain
+observation / readiness
+measurement / KPI measurement
+program / program_applied
+program / entity_updated
+program / prescription_updated
+program / kpi_updated
+system / entity_deleted
 ```
 
-Program edits append a `program/entity_updated` event containing both the previous and new representation before the current entity is replaced. This means the current program can change without erasing why or how it changed.
+The `domain` field is deliberately open-ended so future coaching conversations can store useful observations without database migrations for every new concept.
 
-## Coaching profile
+## Mutation rules
 
-Small global prescriptions are held in `meta.profile`:
+### Initial authorship
+
+`apply_program` writes an entire agent-authored hierarchy in one transaction.
+
+The site validates only structural rules:
+
+- parent-child relationships
+- date ranges
+- block/mesocycle/microcycle duration limits
+- session dates
+- entity identity
+
+It does **not** validate training philosophy.
+
+### Ongoing changes
+
+`patch_program` updates one or more current entities atomically.
+
+Each mutation emits a program event containing:
 
 ```js
 {
-  proteinTargetG,
-  sleepTargetHours,
-  bodyMassKg,
-  goals: []
+  before,
+  after,
+  summary
 }
 ```
 
-Profile updates are also written to the program ledger with before/after values.
+This preserves how the plan evolved.
 
-## Processing model
+### Observations
 
-The UI and WebMCP tools derive projections from the same stored data:
+`append_observation` records lived data without mutating the plan.
+
+Examples include:
+
+- session completion
+- protein intake
+- sleep
+- soreness
+- readiness
+- pain
+- schedule constraints
+- subjective feedback
+
+### Measurements
+
+`append_measurement` writes a numeric measurement against an existing KPI entity.
+
+## Current state vs history
 
 ```text
-raw entities + ledger events
-        ↓
-current block / mesocycle / microcycle
-        ↓
-completion, adherence, duration, recovery, KPI progression
-        ↓
-coach or agent changes future prescriptions
-        ↓
-program change appended to ledger
+entities[]
+    ↓
+current coaching state
+
+ events[]
+    ↓
+what happened + how the plan changed
 ```
 
-Historical observations remain available for later models. A future programming engine can therefore reason over months or years of user-specific response rather than only the latest week.
+The agent can read both through WebMCP.
+
+Over time this enables questions such as:
+
+```text
+What programming coincided with the fastest bench progress?
+Which mesocycles had the best adherence?
+When did fatigue begin rising?
+What sleep patterns preceded poor sessions?
+Did the previous deload improve the target KPI?
+```
+
+The website itself does not answer those questions autonomously. It preserves enough structured history for the conversational agent to reason about them.
 
 ## Deletion
 
-Ledger records remain stored unless explicitly deleted. Deletion is intentionally destructive and exposed separately through `delete_ledger_entry`.
+Data is retained unless explicitly deleted.
 
-Deleting a historical observation changes any projections calculated from that observation. Program entities are not automatically deleted when an observation is removed.
+`delete_record` supports:
+
+- deleting a single event
+- deleting an entity
+- deleting an entity subtree only when `cascade=true` is explicitly supplied
+
+Deleting an entity subtree also removes events directly attached to those entities.
 
 ## Portability
 
-The UI can export the entire local model as JSON containing:
+The complete local ledger can be exported as JSON:
 
 ```text
 schemaVersion
@@ -204,4 +378,6 @@ events[]
 meta{}
 ```
 
-This keeps the local-first ledger portable and gives us a migration path if storage moves beyond IndexedDB later.
+Import replaces the current local ledger transactionally after validation.
+
+This provides a migration path to later synchronization or account-backed storage without changing the core data model.
