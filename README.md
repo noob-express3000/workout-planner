@@ -1,129 +1,107 @@
 # Workout Planner
 
-A browser-first training state system built for the Amazon Developer Hackathon Alexa+ simulated-experience route.
+A browser-native coaching ledger for the Amazon Developer Hackathon Alexa+ simulated-experience route.
 
-The application is intentionally not a general fitness coach. It gives an agent a persistent, machine-operable model of a user's training state and a deterministic programming engine for targeted lifts or muscle groups.
-
-## Product model
-
-The web app is the state surface. Conversation is expected to happen in an external agent such as a simulated Alexa+ experience or a WebMCP-aware browser agent.
+The web app is not the conversational agent. It is the persistent training surface the agent operates.
 
 ```text
-Human voice / conversation
-          ↓
-       Agent
-          ↓
-       WebMCP
-          ↓
+Human conversation
+      ↓
+Agent / simulated Alexa+
+      ↓
+WebMCP
+      ↓
 Workout Planner
-├── persistent local training state
-├── deterministic assessment engine
-├── program generator
-└── decision history
+      ↓
+Persistent coaching ledger
 ```
 
-No backend, account system, database, payment layer, or cloud state is required for the MVP.
+## Core model
 
-## Tracked training data
+```text
+Training Block
+└── Mesocycle
+    └── Microcycle
+        └── Session
+            └── Prescription
+```
 
-The current model supports:
+Conventions used by the current prototype:
 
-- strength, hypertrophy, or power goal
-- active lift or muscle target
-- equipment
-- weekly training days
-- session duration
-- target frequency
-- direct weekly sets
-- indirect weekly sets
-- top-set load and reps
-- estimated one-rep max for lift targets
-- RIR
-- adherence
-- readiness
-- soreness
-- sleep
-- completed workouts
-- performance history
-- recovery history
-- program decisions and rationale
+- one dominant outcome per training block
+- training block: up to roughly 6 months
+- mesocycle: up to 4 weeks
+- microcycle: up to 1 week
+- deloads are special microcycles
+- test weeks are special microcycles
 
-Targets currently include bench press, squat, deadlift, overhead press, chest, back, shoulders, biceps, triceps, quads, hamstrings, glutes, and calves.
+The current demo seeds a 12-week maximum-strength block with three four-week mesocycles, scheduled deloads, a test week, and daily prescriptions.
 
-## Finite training states
+## Domain views
 
-The deterministic engine classifies each target as one of:
+The interface follows the coaching-notebook sketch rather than a dashboard layout.
 
-- `UNDERTRAINED`
-- `ADEQUATE`
-- `PROGRESSING`
-- `STALLED`
-- `RECOVERY_LIMITED`
+Top-level views:
 
-The classification uses multiple signals rather than a single volume threshold: effective exposure, target frequency, estimated-strength trend, adherence, effort, readiness, soreness, and sleep.
+- Training
+- Protein
+- Sleep
+- KPI
 
-The states are programming states for the hackathon prototype, not medical diagnoses.
+Training can be inspected at:
+
+- Microcycle
+- Mesocycle
+- Deload
+- Training Block
+- Ledger
+
+The same stored data powers every view.
+
+## Persistence
+
+Long-lived state is stored in IndexedDB rather than a single `localStorage` document.
+
+The database contains:
+
+- `entities` — blocks, mesocycles, microcycles, sessions, KPIs
+- `events` — append-only training, protein, sleep, KPI, program, and system history
+- `meta` — coaching profile and active-program metadata
+
+Program edits preserve previous and new values in the ledger. Observations remain stored until explicitly deleted.
+
+See [`DATA_MODEL.md`](./DATA_MODEL.md) for the schema.
+
+The interface can export the complete local model as JSON.
 
 ## WebMCP tools
 
-The app registers 11 tools when `document.modelContext.registerTool` is available:
-
-- `get_training_state`
-- `set_active_target`
-- `update_training_profile`
-- `assess_target`
-- `create_program`
-- `get_program`
-- `log_set`
-- `complete_workout`
-- `record_recovery`
-- `get_progress`
-- `adjust_program`
-
-The visible UI and the WebMCP tools operate on the exact same local state and programming functions.
-
-## Default demo
-
-The default target is bench press:
+The current site registers:
 
 ```text
-80 kg × 5
-5 direct weekly sets
-1 bench exposure / week
-95% adherence
-1 RIR
-normal recovery
+get_program_view
+get_training_ledger
+get_coaching_profile
+update_coaching_profile
+create_training_block
+add_training_session
+update_program_entity
+log_training_session
+log_protein
+log_sleep
+log_kpi
+delete_ledger_entry
 ```
 
-Initial assessment:
+This lets an agent populate and operate the same ledger that the human sees.
 
-```text
-UNDERTRAINED
-```
+## Meal Planner V2 relationship
 
-The engine responds by distributing the target across two weekly exposures rather than simply making one session harder.
+Workout Planner does not modify or embed Meal Planner V2.
 
-Use **Log successful demo workout** to simulate a successful session with improved performance. The recorded performance raises estimated 1RM and the target transitions to:
+The two applications follow the same browser-native philosophy and can be used by the same external agent. Workout Planner stores the coaching prescription, such as a protein target. Meal Planner can independently handle the food and recipe workflow needed to satisfy it.
 
-```text
-PROGRESSING
-```
-
-The next program is rebuilt from the changed persistent state.
-
-## Local persistence
-
-All state lives in browser `localStorage` under:
-
-```text
-workout-planner.v2
-```
-
-Refreshing the page therefore preserves training history, programs, recovery data, and decisions without a backend.
-
-## Run locally
-
-No build step is required.
+## Local run
 
 ```bash
 python -m http.server 8080
@@ -133,22 +111,10 @@ Open `http://localhost:8080`.
 
 ## Render
 
-`render.yaml` defines a zero-build Render Static Site that publishes the repository root.
+The repository includes `render.yaml` for a zero-build static deployment.
 
-## Scope intentionally excluded
+## Scope
 
-- full autonomous fitness coaching
-- authentication
-- payments
-- social features
-- wearables
-- pose estimation
-- server-side persistence
-- a custom speech recognition stack
-- AWS infrastructure for the initial simulated Alexa+ route
+No account system, cloud database, payment system, social layer, wearable dependency, or embedded LLM is required for the current prototype.
 
-## Design principle
-
-The agent handles language. The site handles state. The engine handles programming.
-
-Maximum capability. Minimum ceremony.
+The difficult part of the product is the growing coaching model and the agent-operable interface around it.
