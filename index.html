@@ -6,13 +6,17 @@
   <meta name="theme-color" content="#09090b" />
   <meta name="description" content="A persistent coaching ledger operated by conversational agents." />
   <title>Workout Planner</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="./styles.css" />
   <link rel="stylesheet" href="./ui-cleanup.css" />
 </head>
 <body>
   <div class="app-layout">
     <aside class="sidebar">
-      <div class="brand">Workout Planner</div>
+      <div class="brand" aria-label="Workout Planner">
+        <span class="brand-mark" aria-hidden="true">𝔚</span>
+        <span>Workout Planner</span>
+      </div>
 
       <nav class="tabs" aria-label="Coaching domains">
         <button class="tab active" data-tab="training" type="button"><span>Training</span></button>
