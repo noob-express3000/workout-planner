@@ -7,6 +7,7 @@
   <meta name="description" content="A persistent coaching ledger operated by conversational agents." />
   <title>Workout Planner</title>
   <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="./ui-cleanup.css" />
 </head>
 <body>
   <div class="app-layout">
@@ -21,7 +22,7 @@
       </nav>
 
       <div class="sidebar-actions">
-        <span id="webmcpStatus" class="mcp-status"><i></i><span>Checking WebMCP…</span></span>
+        <span id="webmcpStatus" class="mcp-status" title="WebMCP status"><i></i><span>Checking WebMCP…</span></span>
         <span id="storageStatus" class="storage-status">LEDGER LOADING</span>
 
         <div class="data-actions">
@@ -36,11 +37,7 @@
     <section class="workspace">
       <main>
         <section id="trainingTab" class="tab-view training-tab active">
-          <div class="section-head">
-            <div>
-              <h2>Training</h2>
-            </div>
-
+          <div class="section-head training-head">
             <nav class="subtabs" aria-label="Training scale">
               <button class="active" data-view="microcycle" type="button">Week</button>
               <button data-view="mesocycle" type="button">Mesocycle</button>
