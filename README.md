@@ -70,9 +70,11 @@ Training can be inspected at:
 
 All views are projections of the same stored model.
 
-The training view presents a seven-day selector and the selected day's sessions, with a compact weekly summary. Previous/next controls navigate stored weeks. Multiple sessions on a date are displayed together. Users can log completion, duration, and notes from a session; these are appended through the same observation API used by agents. Updating a log preserves the earlier observation in History.
+The training workspace follows Program → Block → Mesocycle → Microcycle → Session. Parent selectors constrain child selectors; selecting a different parent clears the previous descendant selection. Browsing stored programs, including historical ones, does not change the agent's active program.
 
-On small screens the session and weekly summary stack vertically. Wider data tables scroll within their own containers. Backup, restore, connection details, and data deletion live in Settings. A new workspace offers setup instructions and backup restoration without adding sample training data.
+Program, block, and mesocycle tables drill down into their children. A microcycle lists all sessions in chronological order, including multiple sessions on the same day. Expand a session for its activities, prescriptions, and recorded observations, or select one session directly. Deloads remain microcycles within their mesocycle and are also accessible from the selected block's Deloads view.
+
+The interface uses compact selectors, tables, and expandable rows. There is no dashboard summary panel or manual check-in flow. Agents continue to append observations through WebMCP. Backup, restore, and connection instructions remain in Settings.
 
 ## Persistence
 

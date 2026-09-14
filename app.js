@@ -6,8 +6,7 @@ let db;
 let model = { entities: [], events: [], meta: {} };
 let activeTab = 'training';
 let activeView = 'microcycle';
-let selectedMicroId = null;
-let selectedDate = null;
+let inspected = {};
 
 const $ = (id) => document.getElementById(id);
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -596,10 +595,64 @@ function blockMicros(blockId) {
   return children(blockId, 'mesocycle').flatMap((meso) => children(meso.id, 'microcycle'));
 }
 
+function inspectionContext() {
+  const today = dateKey(new Date());
+  const active = currentContext();
+  const pickLevel = (type, parent) => {
+    const rows = (type === 'program' ? entities(type) : parent ? children(parent.id, type) : []).filter(item => item.status !== 'deleted');
+    return rows.find(item => item.id === inspected[type])
+      || rows.find(item => item.id === active[type]?.id)
+      || rows.find(item => item.startDate <= today && item.endDate >= today)
+      || rows[0] || null;
+  };
+  const program = pickLevel('program');
+  const block = pickLevel('block', program);
+  const mesocycle = pickLevel('mesocycle', block);
+  const microcycle = pickLevel('microcycle', mesocycle);
+  const session = microcycle ? children(microcycle.id, 'session').find(item => item.id === inspected.session) || null : null;
+  return { program, block, mesocycle, microcycle, session };
+}
+
+function inspectEntity(id) {
+  const item = entity(id);
+  if (!item || !['program', 'block', 'mesocycle', 'microcycle', 'session'].includes(item.type)) return;
+  inspected = {};
+  let cursor = item;
+  const seen = new Set();
+  while (cursor && !seen.has(cursor.id)) {
+    seen.add(cursor.id);
+    inspected[cursor.type] = cursor.id;
+    cursor = entity(cursor.parentId);
+  }
+  activeView = item.type === 'session' ? 'microcycle' : item.type;
+}
+
 function renderContext() {
-  const context = currentContext();
-  $('programTitle').textContent = context.program?.title || '';
-  document.querySelector('.subtabs').hidden = !context.block;
+  const context = inspectionContext();
+  const levels = ['program', 'block', 'mesocycle', 'microcycle', 'session'];
+  const labels = ['Program', 'Block', 'Mesocycle', 'Microcycle', 'Session'];
+  $('hierarchy').innerHTML = levels.map((type, index) => {
+    const parent = index ? context[levels[index - 1]] : null;
+    const rows = (index ? parent ? children(parent.id, type) : [] : entities('program')).filter(item => item.status !== 'deleted');
+    const selected = context[type];
+    return `<label>${labels[index]}<select data-level="${type}" ${rows.length ? '' : 'disabled'}>${type === 'session' ? '<option value="">All sessions</option>' : !rows.length ? '<option value="">—</option>' : ''}${rows.map(item => `<option value="${esc(item.id)}" ${item.id === selected?.id ? 'selected' : ''}>${esc(item.title)}${item.kind === 'deload' ? ' · Deload' : ''}</option>`).join('')}</select></label>`;
+  }).join('');
+}
+
+function hierarchyRows(parent, type) {
+  const rows = parent ? children(parent.id, type) : [];
+  if (!parent) return '<div class="empty">No program selected.</div>';
+  const label = { block: 'Block', mesocycle: 'Mesocycle', microcycle: 'Microcycle' }[type];
+  let html = `<div class="view-head"><div><h2>${esc(parent.title)}</h2></div><small>${esc(formatRange(parent.startDate, parent.endDate))}</small></div>`;
+  if (parent.objective || parent.focus || parent.outcome) html += `<p class="objective">${esc(parent.objective || parent.focus || parent.outcome)}</p>`;
+  if (!rows.length) return html + `<div class="empty">No ${label.toLowerCase()}s recorded.</div>`;
+  html += `<table class="scale-table"><thead><tr><th>${label}</th><th>Dates</th><th>Focus</th><th>Sessions</th><th>Status</th></tr></thead><tbody>`;
+  for (const item of rows) {
+    const sessions = descendants(item.id).filter(child => child.type === 'session');
+    const completed = sessions.filter(session => statusForSession(session).label === 'DONE').length;
+    html += `<tr><td><button type="button" class="entity-link" data-inspect="${esc(item.id)}">${esc(item.title)}</button></td><td>${esc(formatRange(item.startDate, item.endDate))}</td><td>${esc(item.objective || item.focus || item.outcome || '—')}</td><td>${completed}/${sessions.length}</td><td>${esc(item.kind === 'deload' ? 'Deload' : item.status || item.kind || 'Planned')}</td></tr>`;
+  }
+  return html + '</tbody></table>';
 }
 
 function displayValue(value) {
@@ -619,68 +672,28 @@ function activityDetails(activity) {
     .join(' · ');
 }
 
-function renderMicrocycle(currentMicro) {
-  const context = currentContext();
-  const weeks = context.block ? blockMicros(context.block.id).filter((week) => week.status !== 'archived').sort((a, b) => a.startDate.localeCompare(b.startDate)) : [];
-  const micro = weeks.find((week) => week.id === selectedMicroId) || currentMicro;
-  if (!micro) {
-    return '<div class="empty welcome"><p class="eyebrow">Start here</p><h2>A place for your<br>next session.</h2><p>Build a plan with your agent, then keep your training and progress here.</p><div class="welcome-actions"><button class="primary-button" type="button" data-open-guide>Set up your plan <span aria-hidden="true">↗</span></button><button class="secondary-button" type="button" data-restore>Restore backup</button></div></div>';
-  }
-  const sessions = children(micro.id, 'session');
-  const dates = datesForCurrentWeek(micro);
-  const today = dateKey(new Date());
-  if (!dates.includes(selectedDate)) selectedDate = dates.includes(today) ? today : dates[0];
+function renderMicrocycle(micro) {
+  if (!micro) return '<div class="empty">No microcycle recorded.</div>';
+  const context = inspectionContext();
   const stats = microStats(micro.id);
-  const weekIndex = weeks.findIndex((week) => week.id === micro.id);
-  let html = `<div class="week-heading"><div><h2>${esc(micro.title)}</h2><p>${esc(formatRange(micro.startDate, micro.endDate))}</p></div><div class="week-nav"><button class="icon-button" type="button" data-week-shift="-1" aria-label="Previous week" ${weekIndex <= 0 ? 'disabled' : ''}>‹</button><button class="icon-button" type="button" data-week-shift="1" aria-label="Next week" ${weekIndex < 0 || weekIndex >= weeks.length - 1 ? 'disabled' : ''}>›</button></div></div>`;
-  html += '<div class="week-strip" role="group" aria-label="Select training day">';
-  for (const date of dates) {
-    const daySessions = sessions.filter((session) => session.date === date);
-    const done = daySessions.filter((session) => statusForSession(session).label === 'DONE').length;
-    const weekday = formatDate(date, { weekday: 'short' });
-    const caption = !daySessions.length ? 'Rest' : done === daySessions.length ? 'Done' : daySessions.length > 1 ? `${daySessions.length} sessions` : 'Train';
-    html += `<button type="button" class="day-button ${date === selectedDate ? 'selected' : ''} ${date === today ? 'today' : ''}" data-day="${date}" aria-pressed="${date === selectedDate}" aria-label="${esc(formatDate(date, { weekday: 'long', month: 'long', day: 'numeric' }))}${date === today ? ', today' : ''}, ${caption}"><span class="day-weekday">${esc(weekday)}</span><span class="day-number">${parseDate(date).getDate()}</span><span class="day-caption">${caption}</span></button>`;
-  }
-  html += '</div><div class="session-layout"><div class="session-stack">';
-  const daySessions = sessions.filter((session) => session.date === selectedDate);
-  if (!daySessions.length) html += '<div class="empty"><strong>No session scheduled.</strong><p>Your next training day is a tap away.</p></div>';
-  for (const session of daySessions) {
+  const sessions = children(micro.id, 'session');
+  let html = `<div class="view-head"><div><h2>${esc(micro.title)}${micro.kind === 'deload' ? ' · Deload' : ''}</h2></div><small>${esc(formatRange(micro.startDate, micro.endDate))} · ${stats.completed}/${stats.sessions} sessions</small></div>`;
+  if (micro.objective || micro.focus) html += `<p class="objective">${esc(micro.objective || micro.focus)}</p>`;
+  if (!sessions.length) return html + '<div class="empty">No sessions recorded.</div>';
+  for (const session of sessions) {
+    if (context.session && context.session.id !== session.id) continue;
     const status = statusForSession(session);
     const result = sessionResult(session.id);
-    const activities = session.activities || [];
-    const label = { DONE: 'Completed', MISSED: 'Missed', PLANNED: 'Planned', LOGGED: 'Logged' }[status.label];
-    html += `<article class="session-card"><header class="session-card-head"><div><p class="eyebrow">${esc(formatDate(selectedDate, { weekday: 'long' }))}${selectedDate === today ? ' / Today' : ''}</p><h3>${esc(session.title)}</h3><div class="session-meta"><span>${activities.length} ${activities.length === 1 ? 'activity' : 'activities'}</span>${session.durationMinutes ? `<span>${esc(session.durationMinutes)} min planned</span>` : ''}</div></div><span class="session-badge ${status.cls}">${label}</span></header><ol class="activity-list">`;
-    activities.forEach((activity, index) => {
-      const explicit = activity.prescription && typeof activity.prescription === 'object' ? activity.prescription : null;
-      const omit = new Set(['name', 'title', 'type', 'prescription', 'metadata', 'note']);
-      const values = Object.entries(explicit || activity).filter(([key, value]) => !omit.has(key) && value !== null && value !== undefined && value !== '');
-      html += `<li class="activity"><span class="activity-number" aria-hidden="true">${String(index + 1).padStart(2, '0')}</span><div><h4 class="activity-name" style="margin:0">${esc(activity.name || activity.title || activity.type || 'Activity')}</h4><div class="activity-values">${values.map(([key, value]) => `<span><b>${esc(displayValue(value))}</b> ${esc(key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ').toLowerCase())}</span>`).join('')}</div>${activity.note ? `<p class="activity-note">${esc(activity.note)}</p>` : ''}</div></li>`;
-    });
-    html += `</ol><footer class="session-footer"><div><p>${result ? `${label}${status.duration ? ` · ${status.duration} min logged` : ''}` : 'Ready when you are.'}</p>${result?.note ? `<p class="session-note">${esc(result.note)}</p>` : ''}</div><button class="${result ? 'secondary-button' : 'primary-button'}" type="button" data-log-session="${esc(session.id)}">${result ? 'Update log' : 'Log session'} <span aria-hidden="true">↗</span></button></footer></article>`;
+    html += `<details class="session-detail" ${context.session?.id === session.id ? 'open' : ''}><summary><span class="session-date">${esc(formatDate(session.date, { weekday: 'short', month: 'short', day: 'numeric' }))}</span><strong>${esc(session.title)}</strong><span class="session-duration">${session.durationMinutes ? esc(session.durationMinutes) + ' min' : ''}</span><span class="${status.cls}">${esc(status.label)}</span></summary><div class="session-content"><table><thead><tr><th>Activity</th><th>Prescription</th><th>Notes</th></tr></thead><tbody>`;
+    for (const activity of session.activities || []) html += `<tr><td>${esc(activity.name || activity.title || activity.type || 'Activity')}</td><td>${esc(activityDetails(activity) || '—')}</td><td>${esc(activity.note || '—')}</td></tr>`;
+    html += '</tbody></table>';
+    if (result) html += `<p class="session-observation">${esc(status.label)}${status.duration ? ' · ' + esc(status.duration) + ' min' : ''}${result.note ? ' · ' + esc(result.note) : ''}</p>`;
+    html += '</div></details>';
   }
-  html += `</div><aside class="week-overview" aria-label="Week summary"><p class="eyebrow">This week</p><div class="overview-number"><strong>${stats.completed}<span> / ${stats.sessions}</span></strong><span>sessions done</span></div><progress max="${Math.max(1, stats.sessions)}" value="${stats.completed}" aria-label="Completed sessions"></progress><dl class="overview-stats"><div><dt>Completion</dt><dd>${stats.sessions ? Math.round(stats.adherence * 100) + '%' : '—'}</dd></div><div><dt>Planned time</dt><dd>${stats.plannedMinutes} min</dd></div><div><dt>Logged time</dt><dd>${stats.actualMinutes} min</dd></div></dl>`;
-  const meso = entity(micro.parentId);
-  if (meso) html += `<div class="context-detail"><p class="eyebrow">Current cycle</p><h3>${esc(meso.title)}</h3><p>${esc(meso.objective || meso.focus || formatRange(meso.startDate, meso.endDate))}</p></div>`;
-  if (context.block) html += `<div class="context-detail"><p class="eyebrow">Training block</p><h3>${esc(context.block.title)}</h3><p>${esc(context.block.objective || context.block.outcome || formatRange(context.block.startDate, context.block.endDate))}</p></div>`;
-  return html + '</aside></div>';
-}
-
-function renderMesocycle(meso) {
-  if (!meso) return '<div class="empty">No cycle planned yet.</div>';
-  const micros = children(meso.id, 'microcycle');
-  const total = mesoStats(meso.id);
-  let html = `<div class="view-head"><div><span>MESOCYCLE</span><h2>${esc(meso.title)}</h2></div><small>${esc(meso.objective || meso.focus || '')}</small></div>`;
-  html += `<div class="summary-line"><div><span>WEEKS</span><strong>${total.weeks}</strong></div><div><span>SESSIONS</span><strong>${total.completed}/${total.sessions}</strong></div><div><span>ADHERENCE</span><strong>${Math.round(total.adherence * 100)}%</strong></div></div>`;
-  html += '<table class="scale-table"><thead><tr><th>WEEK</th><th>TYPE</th><th>DATES</th><th>SESSIONS</th><th>ADHERENCE</th><th>TIME</th></tr></thead><tbody>';
-  for (const micro of micros) {
-    const stats = microStats(micro.id);
-    const current = currentContext().microcycle?.id === micro.id ? ' current-row' : '';
-    const deload = String(micro.kind).toLowerCase() === 'deload' ? ' deload-row' : '';
-    html += `<tr class="${current}${deload}"><td><strong>${esc(micro.title)}</strong></td><td>${esc(String(micro.kind || 'training').toUpperCase())}</td><td>${esc(formatRange(micro.startDate, micro.endDate))}</td><td>${stats.completed}/${stats.sessions}</td><td>${Math.round(stats.adherence * 100)}%</td><td>${stats.actualMinutes}/${stats.plannedMinutes} min</td></tr>`;
-  }
-  html += '</tbody></table>';
   return html;
 }
+
+function renderMesocycle(meso) { return hierarchyRows(meso, 'microcycle'); }
 
 function renderDeload(block) {
   if (!block) return '<div class="empty">No training block planned yet.</div>';
@@ -691,26 +704,13 @@ function renderDeload(block) {
   for (const micro of deloads) {
     const sessions = children(micro.id, 'session');
     const stats = microStats(micro.id);
-    html += `<tr><td><strong>${esc(micro.title)}</strong></td><td>${esc(formatRange(micro.startDate, micro.endDate))}</td><td>${stats.sessions}</td><td>${stats.plannedMinutes} min</td><td>${esc(sessions.map((item) => item.title).join(' / ') || '—')}</td></tr>`;
+    html += `<tr><td><button type="button" class="entity-link" data-inspect="${esc(micro.id)}">${esc(micro.title)}</button></td><td>${esc(formatRange(micro.startDate, micro.endDate))}</td><td>${stats.sessions}</td><td>${stats.plannedMinutes} min</td><td>${esc(sessions.map((item) => item.title).join(' / ') || '—')}</td></tr>`;
   }
   html += '</tbody></table>';
   return html;
 }
 
-function renderBlock(block) {
-  if (!block) return '<div class="empty">No training block planned yet.</div>';
-  const mesos = children(block.id, 'mesocycle');
-  let html = `<div class="view-head"><div><span>TRAINING BLOCK</span><h2>${esc(block.title)}</h2></div><small>${esc(formatRange(block.startDate, block.endDate))}</small></div>`;
-  html += `<div class="summary-line"><div><span>PRIMARY OBJECTIVE</span><strong>${esc(block.objective || block.outcome || '—')}</strong></div><div><span>DURATION</span><strong>${blockMicros(block.id).length} microcycles</strong></div></div>`;
-  html += '<div class="block-bar">';
-  for (const meso of mesos) {
-    const micros = children(meso.id, 'microcycle');
-    const stats = mesoStats(meso.id);
-    html += `<section class="block-segment"><span>MESOCYCLE ${esc(meso.order ?? '')}</span><strong>${esc(meso.title)}</strong><span>${esc(formatRange(meso.startDate, meso.endDate))}</span><ul><li>${esc(meso.objective || meso.focus || 'No objective supplied.')}</li><li>${micros.length} microcycles</li><li>${stats.sessions} planned sessions</li><li>${Math.round(stats.adherence * 100)}% adherence</li></ul></section>`;
-  }
-  html += '</div>';
-  return html;
-}
+function renderBlock(block) { return hierarchyRows(block, 'mesocycle'); }
 
 function eventSummary(event) {
   if (event.category === 'observation') return `${event.domain || event.action}: ${displayValue(event.data)}`;
@@ -815,7 +815,7 @@ function renderKpis(block) {
 }
 
 function render() {
-  const context = currentContext();
+  const context = inspectionContext();
   renderContext();
   document.querySelectorAll('.tabs button').forEach((button) => {
     const active = button.dataset.tab === activeTab;
@@ -830,7 +830,8 @@ function render() {
     button.setAttribute('aria-pressed', String(active));
   });
   const tableView = (html) => html.replace(/<table /g, '<div class="table-scroll" role="region" aria-label="Scrollable data table" tabindex="0"><table ').replace(/<\/table>/g, '</table></div>');
-  if (activeView === 'microcycle') $('trainingView').innerHTML = renderMicrocycle(context.microcycle);
+  if (activeView === 'program') $('trainingView').innerHTML = tableView(hierarchyRows(context.program, 'block'));
+  else if (activeView === 'microcycle') $('trainingView').innerHTML = renderMicrocycle(context.microcycle);
   else if (activeView === 'mesocycle') $('trainingView').innerHTML = tableView(renderMesocycle(context.mesocycle));
   else if (activeView === 'deload') $('trainingView').innerHTML = tableView(renderDeload(context.block));
   else if (activeView === 'block') $('trainingView').innerHTML = renderBlock(context.block);
@@ -1262,47 +1263,41 @@ async function registerWebMcp() {
 }
 
 function bindUi() {
-
-  document.addEventListener('click', (event) => {
+  document.querySelector('.tabs').addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-tab]');
+    if (!button) return;
+    activeTab = button.dataset.tab;
+    render();
+  });
+  document.querySelector('.subtabs').addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-view]');
+    if (!button) return;
+    activeView = button.dataset.view;
+    render();
+  });
+  $('hierarchy').addEventListener('change', (event) => {
+    const select = event.target.closest('select[data-level]');
+    if (!select) return;
+    if (!select.value && select.dataset.level === 'session') delete inspected.session;
+    else inspectEntity(select.value);
+    render();
+    document.querySelector(`[data-level="${select.dataset.level}"]`)?.focus();
+  });
+  document.addEventListener('click', async (event) => {
     const button = event.target.closest('button');
     if (!button) return;
+    if (button.dataset.inspect) {
+      inspectEntity(button.dataset.inspect);
+      render();
+      $('trainingView').focus();
+    }
     if (button.hasAttribute('data-open-guide')) {
       document.querySelector('.settings').open = false;
       $('agentGuide').showModal();
     }
     if (button.hasAttribute('data-close-dialog')) button.closest('dialog').close();
-    if (button.hasAttribute('data-restore')) $('importButton').click();
-    if (button.dataset.day) {
-      selectedDate = button.dataset.day;
-      render();
-      document.querySelector(`[data-day="${selectedDate}"]`)?.focus();
-    }
-    if (button.dataset.weekShift) {
-      const context = currentContext();
-      const weeks = context.block ? blockMicros(context.block.id).filter((week) => week.status !== 'archived').sort((a, b) => a.startDate.localeCompare(b.startDate)) : [];
-      const currentId = weeks.some((week) => week.id === selectedMicroId) ? selectedMicroId : context.microcycle?.id;
-      const index = weeks.findIndex((week) => week.id === currentId);
-      const next = weeks[index + Number(button.dataset.weekShift)];
-      if (index >= 0 && next) {
-        selectedMicroId = next.id;
-        selectedDate = null;
-        render();
-        const replacement = document.querySelector(`[data-week-shift="${button.dataset.weekShift}"]`);
-        if (replacement && !replacement.disabled) replacement.focus();
-        else document.querySelector('[data-day]')?.focus();
-      }
-    }
-    if (button.dataset.logSession) {
-      const session = entity(button.dataset.logSession);
-      if (!session || session.type !== 'session') return;
-      const result = sessionResult(session.id);
-      $('logSessionId').value = session.id;
-      $('logTitle').textContent = session.title;
-      $('logStatus').value = statusForSession(session).label === 'MISSED' ? 'missed' : 'completed';
-      $('logMinutes').value = result?.data.actualMinutes ?? session.durationMinutes ?? '';
-      $('logNotes').value = result?.note || '';
-      $('logError').textContent = '';
-      $('sessionDialog').showModal();
+    if (button.dataset.deleteEvent && confirm('Delete this ledger record permanently?')) {
+      await deleteRecord({ record_type: 'event', id: button.dataset.deleteEvent });
     }
   });
   document.addEventListener('click', (event) => {
@@ -1312,55 +1307,6 @@ function bindUi() {
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') document.querySelector('.settings').open = false;
   });
-  $('logStatus').addEventListener('change', () => {
-    if ($('logStatus').value === 'missed') $('logMinutes').value = '0';
-  });
-  $('sessionForm').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    if ($('saveSession').disabled) return;
-    const session = entity($('logSessionId').value);
-    const actualMinutes = Number($('logMinutes').value);
-    if (!session || !Number.isInteger(actualMinutes) || actualMinutes < 0 || actualMinutes > 1440) {
-      $('logError').textContent = 'Enter a valid session duration.';
-      return;
-    }
-    $('saveSession').disabled = true;
-    try {
-      await appendObservations({ observations: [{
-        domain: 'training', entity_id: session.id, date: session.date,
-        data: { status: $('logStatus').value, actualMinutes },
-        note: $('logNotes').value.trim(),
-      }] });
-      $('sessionDialog').close();
-      Array.from(document.querySelectorAll('[data-log-session]')).find((button) => button.dataset.logSession === session.id)?.focus();
-    } catch (error) {
-      $('logError').textContent = error.message || 'Could not save. Please try again.';
-    } finally {
-      $('saveSession').disabled = false;
-    }
-  });
-
-  document.querySelector('.tabs').addEventListener('click', (event) => {
-    const button = event.target.closest('button[data-tab]');
-    if (!button) return;
-    activeTab = button.dataset.tab;
-    render();
-  });
-
-  document.querySelector('.subtabs').addEventListener('click', (event) => {
-    const button = event.target.closest('button[data-view]');
-    if (!button) return;
-    activeView = button.dataset.view;
-    render();
-  });
-
-  document.addEventListener('click', async (event) => {
-    const button = event.target.closest('[data-delete-event]');
-    if (!button) return;
-    if (!confirm('Delete this ledger record permanently?')) return;
-    await deleteRecord({ record_type: 'event', id: button.dataset.deleteEvent });
-  });
-
   $('exportButton').addEventListener('click', () => {
     const blob = new Blob([JSON.stringify({
       schemaVersion: SCHEMA_VERSION,

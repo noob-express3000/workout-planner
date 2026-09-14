@@ -37,14 +37,15 @@
   <main id="main" class="workspace">
     <div id="appError" class="error-banner" role="alert" hidden></div>
     <section id="trainingTab" class="tab-view active">
-      <div class="page-heading"><div><p class="eyebrow">Your plan</p><h1>Training</h1></div><p id="programTitle" class="program-title"></p></div>
-      <nav class="subtabs" aria-label="Training views">
-        <button class="active" data-view="microcycle" type="button">Week</button>
-        <button data-view="mesocycle" type="button">Cycle</button>
+      <nav id="hierarchy" class="hierarchy" aria-label="Programming hierarchy"></nav>
+      <nav class="subtabs" aria-label="Programming scale">
+        <button data-view="program" type="button">Program</button>
         <button data-view="block" type="button">Block</button>
-        <button data-view="deload" type="button">Deload</button>
+        <button data-view="mesocycle" type="button">Mesocycle</button>
+        <button class="active" data-view="microcycle" type="button">Microcycle</button>
+        <button data-view="deload" type="button">Deloads</button>
       </nav>
-      <section id="trainingView" class="view" aria-label="Training plan"></section>
+      <section id="trainingView" class="view" tabindex="-1" aria-label="Training plan"></section>
     </section>
     <section id="proteinTab" class="tab-view"><section id="proteinView" class="view" aria-label="Protein"></section></section>
     <section id="sleepTab" class="tab-view"><section id="sleepView" class="view" aria-label="Sleep"></section></section>
@@ -61,18 +62,6 @@
       <li><strong>Ask it to save your program to Workout Planner.</strong><span>Your training will appear here when the agent writes the plan.</span></li>
     </ol>
     <p class="guide-footnote">Already have a backup? Use Restore backup in settings.</p>
-  </dialog>
-  <dialog id="sessionDialog" aria-labelledby="logTitle">
-    <form id="sessionForm">
-      <div class="dialog-head"><p class="eyebrow">Session check-in</p><button type="button" class="icon-button" data-close-dialog aria-label="Close">×</button></div>
-      <h2 id="logTitle">Log session</h2>
-      <input id="logSessionId" type="hidden" />
-      <label>Result<select id="logStatus"><option value="completed">Completed</option><option value="missed">Missed</option></select></label>
-      <label>Time trained <span class="muted">(minutes)</span><input id="logMinutes" type="number" min="0" max="1440" step="1" required /></label>
-      <label>Notes <span class="muted">(optional)</span><textarea id="logNotes" rows="3" maxlength="2000" placeholder="How did it feel?"></textarea></label>
-      <p id="logError" class="form-error" role="alert"></p>
-      <button id="saveSession" class="primary-button" type="submit">Save session <span aria-hidden="true">↗</span></button>
-    </form>
   </dialog>
   <script src="./app.js"></script>
   <script src="./ledger-io.js"></script>
