@@ -10,94 +10,57 @@
 <body>
   <main class="shell">
     <header class="topbar">
-      <h1>WORKOUT PLANNER</h1>
+      <div>
+        <h1>WORKOUT PLANNER</h1>
+        <p>THIS IS ME IF I WERE COACHING</p>
+      </div>
       <span id="webmcpStatus"><i></i><span>WebMCP checking</span></span>
     </header>
 
-    <section class="target">
+    <nav class="tabs" aria-label="Planner domains">
+      <button class="active" data-tab="training">TRAINING</button>
+      <button data-tab="protein">PROTEIN</button>
+      <button data-tab="sleep">SLEEP</button>
+      <button data-tab="kpi">KPI</button>
+    </nav>
+
+    <section id="trainingTab" class="tab-view active">
+      <div class="program-context">
+        <div><span>BLOCK</span><strong id="contextBlock">—</strong></div>
+        <div><span>MESOCYCLE</span><strong id="contextMeso">—</strong></div>
+        <div><span>MICROCYCLE</span><strong id="contextMicro">—</strong></div>
+      </div>
+
+      <nav class="subtabs" aria-label="Training scale">
+        <button class="active" data-view="microcycle">MICROCYCLE</button>
+        <button data-view="mesocycle">MESOCYCLE</button>
+        <button data-view="deload">DELOAD</button>
+        <button data-view="block">TRAINING BLOCK</button>
+        <button data-view="ledger">LEDGER</button>
+      </nav>
+
+      <section id="trainingView" class="view"></section>
+    </section>
+
+    <section id="proteinTab" class="tab-view">
+      <section id="proteinView" class="view"></section>
+    </section>
+
+    <section id="sleepTab" class="tab-view">
+      <section id="sleepView" class="view"></section>
+    </section>
+
+    <section id="kpiTab" class="tab-view">
+      <section id="kpiView" class="view"></section>
+    </section>
+
+    <footer>
+      <span id="storageStatus">LEDGER LOADING</span>
       <div>
-        <label for="targetSelect">TARGET</label>
-        <select id="targetSelect" class="target-select" aria-label="Active training target"></select>
+        <button id="exportButton" type="button">EXPORT JSON</button>
+        <button id="resetButton" type="button">RESET DEMO</button>
       </div>
-      <strong id="stateBadge">UNKNOWN</strong>
-    </section>
-
-    <p id="decisionText" class="decision">Set a baseline to assess this target.</p>
-
-    <dl class="metrics">
-      <div><dt>e1RM</dt><dd id="e1rmMetric">—</dd><small id="e1rmDelta">No history</small></div>
-      <div><dt>EXPOSURE</dt><dd id="exposureMetric">—</dd><small>effective sets / 7d</small></div>
-      <div><dt>FREQUENCY</dt><dd id="frequencyMetric">—</dd><small>sessions / week</small></div>
-      <div><dt>ADHERENCE</dt><dd id="adherenceMetric">—</dd><small>planned work completed</small></div>
-      <div><dt>RECOVERY</dt><dd id="recoveryMetric">—</dd><small>readiness / soreness</small></div>
-      <div><dt>EFFORT</dt><dd id="effortMetric">—</dd><small>average RIR</small></div>
-    </dl>
-
-    <section class="program">
-      <div class="section-heading">
-        <div>
-          <span class="section-label">PROGRAM</span>
-          <h2 id="programTitle">No recommendation yet</h2>
-        </div>
-        <button type="button" id="generateButton">REBUILD</button>
-      </div>
-
-      <div id="programEmpty" class="empty">Assess the target to generate a program.</div>
-      <div id="programContent" class="hidden">
-        <div id="programSummary" class="program-summary"></div>
-        <div id="sessionList" class="sessions"></div>
-      </div>
-    </section>
-
-    <section class="history">
-      <div class="section-heading">
-        <span class="section-label">DECISIONS</span>
-        <span id="workoutCount">0 workouts</span>
-      </div>
-      <div id="decisionLog" class="decision-log"></div>
-    </section>
-
-    <details class="manual-controls">
-      <summary>MANUAL TEST INPUT</summary>
-
-      <div class="controls">
-        <label>Goal
-          <select id="goal"><option value="strength">Strength</option><option value="hypertrophy">Hypertrophy</option><option value="power">Power</option></select>
-        </label>
-        <label>Training days<input id="trainingDays" type="number" min="1" max="7" value="4" /></label>
-        <label>Session minutes<input id="sessionDuration" type="number" min="20" max="180" step="5" value="60" /></label>
-        <label>Target frequency<input id="targetFrequency" type="number" min="1" max="7" value="1" /></label>
-        <label>Direct sets / week<input id="directSets" type="number" min="0" max="30" value="5" /></label>
-        <label>Indirect sets / week<input id="indirectSets" type="number" min="0" max="30" value="2" /></label>
-        <label>Top-set load kg<input id="loadKg" type="number" min="0" max="500" step="0.5" value="80" /></label>
-        <label>Top-set reps<input id="reps" type="number" min="1" max="30" value="5" /></label>
-        <label>Average RIR<input id="rir" type="number" min="0" max="5" step="0.5" value="1" /></label>
-        <label>Adherence %<input id="adherence" type="number" min="0" max="100" value="95" /></label>
-        <label>Readiness 1–10<input id="readiness" type="number" min="1" max="10" value="7" /></label>
-        <label>Soreness 0–10<input id="soreness" type="number" min="0" max="10" value="2" /></label>
-        <label>Sleep hours<input id="sleepHours" type="number" min="0" max="16" step="0.5" value="7.5" /></label>
-      </div>
-
-      <fieldset>
-        <legend>Equipment</legend>
-        <div id="equipmentGrid" class="equipment">
-          <label><input type="checkbox" value="bodyweight" checked />Bodyweight</label>
-          <label><input type="checkbox" value="dumbbells" checked />Dumbbells</label>
-          <label><input type="checkbox" value="barbell" checked />Barbell</label>
-          <label><input type="checkbox" value="bench" checked />Bench</label>
-          <label><input type="checkbox" value="rack" checked />Rack</label>
-          <label><input type="checkbox" value="cables" />Cables</label>
-          <label><input type="checkbox" value="machines" />Machines</label>
-          <label><input type="checkbox" value="pullup" />Pull-up bar</label>
-        </div>
-      </fieldset>
-
-      <div class="actions">
-        <button type="button" id="assessButton">ASSESS + BUILD</button>
-        <button type="button" id="demoWorkoutButton">LOG DEMO WORKOUT</button>
-        <button type="button" id="resetButton">RESET</button>
-      </div>
-    </details>
+    </footer>
   </main>
 
   <script src="./app.js"></script>
