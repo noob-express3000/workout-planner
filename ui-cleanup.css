@@ -1,5 +1,22 @@
 /* Deliberately small presentation overrides. Keep the coaching surface quiet. */
 
+.brand {
+  gap: 10px;
+}
+
+.brand-mark {
+  display: inline-grid;
+  width: 30px;
+  height: 34px;
+  place-items: center;
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-family: "Old English Text MT", "UnifrakturCook", Georgia, serif;
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
 /* The selected sidebar item already says Training. */
 .training-head {
   min-height: 40px;
@@ -21,7 +38,7 @@
   height: 0;
 }
 
-/* These labels explain the implementation rather than the user's data. */
+/* These labels explain implementation rather than user state. */
 .view-head > div > span {
   display: none;
 }
@@ -53,10 +70,15 @@
   gap: 6px;
 }
 
-/* Avoid an empty technical header when no plan exists. */
-.training-tab:has(#trainingView > .empty) .training-head {
-  border-bottom: 0;
-  margin-bottom: 0;
+/* Empty states should not expose technical hierarchy chrome. */
+.training-tab:has(#trainingView > .empty) .training-head,
+.training-tab:has(#trainingView > .empty) .program-context {
+  display: none;
+}
+
+/* Keep the first-run screen sparse. */
+.training-tab:has(#trainingView > .empty) .view {
+  min-height: calc(100dvh - 124px);
 }
 
 @media (min-width: 981px) {
