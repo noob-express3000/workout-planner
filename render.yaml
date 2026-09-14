@@ -1,0 +1,6 @@
+services:
+  - type: web
+    runtime: static
+    name: workout-planner
+    buildCommand: echo "No build step required"
+    staticPublishPath: .
