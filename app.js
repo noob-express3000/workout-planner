@@ -6,6 +6,8 @@ let db;
 let model = { entities: [], events: [], meta: {} };
 let activeTab = 'training';
 let activeView = 'microcycle';
+let selectedMicroId = null;
+let selectedDate = null;
 
 const $ = (id) => document.getElementById(id);
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -596,9 +598,8 @@ function blockMicros(blockId) {
 
 function renderContext() {
   const context = currentContext();
-  $('contextBlock').textContent = context.block ? `${context.block.title} · ${formatRange(context.block.startDate, context.block.endDate)}` : '—';
-  $('contextMeso').textContent = context.mesocycle ? `${context.mesocycle.title} · ${formatRange(context.mesocycle.startDate, context.mesocycle.endDate)}` : '—';
-  $('contextMicro').textContent = context.microcycle ? `${context.microcycle.title} · ${formatRange(context.microcycle.startDate, context.microcycle.endDate)}` : '—';
+  $('programTitle').textContent = context.program?.title || '';
+  document.querySelector('.subtabs').hidden = !context.block;
 }
 
 function displayValue(value) {
@@ -618,51 +619,59 @@ function activityDetails(activity) {
     .join(' · ');
 }
 
-function renderMicrocycle(micro) {
+function renderMicrocycle(currentMicro) {
+  const context = currentContext();
+  const weeks = context.block ? blockMicros(context.block.id).filter((week) => week.status !== 'archived').sort((a, b) => a.startDate.localeCompare(b.startDate)) : [];
+  const micro = weeks.find((week) => week.id === selectedMicroId) || currentMicro;
   if (!micro) {
-    return '<div class="empty"><strong>NO ACTIVE PROGRAM</strong><br>The coaching agent has not written a microcycle yet.</div>';
+    return '<div class="empty welcome"><p class="eyebrow">Start here</p><h2>A place for your<br>next session.</h2><p>Build a plan with your agent, then keep your training and progress here.</p><div class="welcome-actions"><button class="primary-button" type="button" data-open-guide>Set up your plan <span aria-hidden="true">↗</span></button><button class="secondary-button" type="button" data-restore>Restore backup</button></div></div>';
   }
-
   const sessions = children(micro.id, 'session');
-  const byDate = Object.fromEntries(sessions.map((item) => [item.date, item]));
+  const dates = datesForCurrentWeek(micro);
+  const today = dateKey(new Date());
+  if (!dates.includes(selectedDate)) selectedDate = dates.includes(today) ? today : dates[0];
   const stats = microStats(micro.id);
-  let html = `<div class="view-head"><div><span>${esc(String(micro.kind || 'training').toUpperCase())}</span><h2>${esc(micro.title)}</h2></div><small>${esc(formatRange(micro.startDate, micro.endDate))}</small></div>`;
-  html += `<div class="summary-line"><div><span>SESSIONS</span><strong>${stats.completed}/${stats.sessions}</strong></div><div><span>ADHERENCE</span><strong>${Math.round(stats.adherence * 100)}%</strong></div><div><span>PLANNED TIME</span><strong>${stats.plannedMinutes} min</strong></div><div><span>LOGGED TIME</span><strong>${stats.actualMinutes} min</strong></div></div>`;
-  html += '<div class="week-grid">';
-
-  const start = parseDate(micro.startDate);
-  const days = inclusiveDays(micro.startDate, micro.endDate);
-  for (let day = 0; day < Math.min(7, days); day += 1) {
-    const date = dateKey(addDays(start, day));
-    const session = byDate[date];
-    const weekday = new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(parseDate(date)).toUpperCase();
-    html += `<article class="day"><div class="day-head"><strong>${esc(weekday)}</strong><span>${esc(formatDate(date))}</span></div>`;
-    if (!session) {
-      html += '<p class="empty">Rest</p></article>';
-      continue;
-    }
-
-    const status = statusForSession(session);
-    html += `<h3 class="session-title">${esc(session.title)}</h3>`;
-    for (const activity of session.activities || []) {
-      const name = activity.name || activity.title || activity.type || 'Activity';
-      const details = activityDetails(activity);
-      html += `<div class="work-row"><strong>${esc(name)}</strong>${details ? `<span>${esc(details)}</span>` : ''}${activity.note ? `<span>${esc(activity.note)}</span>` : ''}</div>`;
-    }
-    html += `<div class="day-status ${status.cls}"><strong>${status.mark}</strong><span>${status.label}${status.duration ? ` · ${status.duration} min` : ''}</span></div></article>`;
+  const weekIndex = weeks.findIndex((week) => week.id === micro.id);
+  let html = `<div class="week-heading"><div><h2>${esc(micro.title)}</h2><p>${esc(formatRange(micro.startDate, micro.endDate))}</p></div><div class="week-nav"><button class="icon-button" type="button" data-week-shift="-1" aria-label="Previous week" ${weekIndex <= 0 ? 'disabled' : ''}>‹</button><button class="icon-button" type="button" data-week-shift="1" aria-label="Next week" ${weekIndex < 0 || weekIndex >= weeks.length - 1 ? 'disabled' : ''}>›</button></div></div>`;
+  html += '<div class="week-strip" role="group" aria-label="Select training day">';
+  for (const date of dates) {
+    const daySessions = sessions.filter((session) => session.date === date);
+    const done = daySessions.filter((session) => statusForSession(session).label === 'DONE').length;
+    const weekday = formatDate(date, { weekday: 'short' });
+    const caption = !daySessions.length ? 'Rest' : done === daySessions.length ? 'Done' : daySessions.length > 1 ? `${daySessions.length} sessions` : 'Train';
+    html += `<button type="button" class="day-button ${date === selectedDate ? 'selected' : ''} ${date === today ? 'today' : ''}" data-day="${date}" aria-pressed="${date === selectedDate}" aria-label="${esc(formatDate(date, { weekday: 'long', month: 'long', day: 'numeric' }))}${date === today ? ', today' : ''}, ${caption}"><span class="day-weekday">${esc(weekday)}</span><span class="day-number">${parseDate(date).getDate()}</span><span class="day-caption">${caption}</span></button>`;
   }
-
-  html += '</div>';
-  return html;
+  html += '</div><div class="session-layout"><div class="session-stack">';
+  const daySessions = sessions.filter((session) => session.date === selectedDate);
+  if (!daySessions.length) html += '<div class="empty"><strong>No session scheduled.</strong><p>Your next training day is a tap away.</p></div>';
+  for (const session of daySessions) {
+    const status = statusForSession(session);
+    const result = sessionResult(session.id);
+    const activities = session.activities || [];
+    const label = { DONE: 'Completed', MISSED: 'Missed', PLANNED: 'Planned', LOGGED: 'Logged' }[status.label];
+    html += `<article class="session-card"><header class="session-card-head"><div><p class="eyebrow">${esc(formatDate(selectedDate, { weekday: 'long' }))}${selectedDate === today ? ' / Today' : ''}</p><h3>${esc(session.title)}</h3><div class="session-meta"><span>${activities.length} ${activities.length === 1 ? 'activity' : 'activities'}</span>${session.durationMinutes ? `<span>${esc(session.durationMinutes)} min planned</span>` : ''}</div></div><span class="session-badge ${status.cls}">${label}</span></header><ol class="activity-list">`;
+    activities.forEach((activity, index) => {
+      const explicit = activity.prescription && typeof activity.prescription === 'object' ? activity.prescription : null;
+      const omit = new Set(['name', 'title', 'type', 'prescription', 'metadata', 'note']);
+      const values = Object.entries(explicit || activity).filter(([key, value]) => !omit.has(key) && value !== null && value !== undefined && value !== '');
+      html += `<li class="activity"><span class="activity-number" aria-hidden="true">${String(index + 1).padStart(2, '0')}</span><div><h4 class="activity-name" style="margin:0">${esc(activity.name || activity.title || activity.type || 'Activity')}</h4><div class="activity-values">${values.map(([key, value]) => `<span><b>${esc(displayValue(value))}</b> ${esc(key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ').toLowerCase())}</span>`).join('')}</div>${activity.note ? `<p class="activity-note">${esc(activity.note)}</p>` : ''}</div></li>`;
+    });
+    html += `</ol><footer class="session-footer"><div><p>${result ? `${label}${status.duration ? ` · ${status.duration} min logged` : ''}` : 'Ready when you are.'}</p>${result?.note ? `<p class="session-note">${esc(result.note)}</p>` : ''}</div><button class="${result ? 'secondary-button' : 'primary-button'}" type="button" data-log-session="${esc(session.id)}">${result ? 'Update log' : 'Log session'} <span aria-hidden="true">↗</span></button></footer></article>`;
+  }
+  html += `</div><aside class="week-overview" aria-label="Week summary"><p class="eyebrow">This week</p><div class="overview-number"><strong>${stats.completed}<span> / ${stats.sessions}</span></strong><span>sessions done</span></div><progress max="${Math.max(1, stats.sessions)}" value="${stats.completed}" aria-label="Completed sessions"></progress><dl class="overview-stats"><div><dt>Completion</dt><dd>${stats.sessions ? Math.round(stats.adherence * 100) + '%' : '—'}</dd></div><div><dt>Planned time</dt><dd>${stats.plannedMinutes} min</dd></div><div><dt>Logged time</dt><dd>${stats.actualMinutes} min</dd></div></dl>`;
+  const meso = entity(micro.parentId);
+  if (meso) html += `<div class="context-detail"><p class="eyebrow">Current cycle</p><h3>${esc(meso.title)}</h3><p>${esc(meso.objective || meso.focus || formatRange(meso.startDate, meso.endDate))}</p></div>`;
+  if (context.block) html += `<div class="context-detail"><p class="eyebrow">Training block</p><h3>${esc(context.block.title)}</h3><p>${esc(context.block.objective || context.block.outcome || formatRange(context.block.startDate, context.block.endDate))}</p></div>`;
+  return html + '</aside></div>';
 }
 
 function renderMesocycle(meso) {
-  if (!meso) return '<div class="empty">No mesocycle has been authored yet.</div>';
+  if (!meso) return '<div class="empty">No cycle planned yet.</div>';
   const micros = children(meso.id, 'microcycle');
   const total = mesoStats(meso.id);
   let html = `<div class="view-head"><div><span>MESOCYCLE</span><h2>${esc(meso.title)}</h2></div><small>${esc(meso.objective || meso.focus || '')}</small></div>`;
   html += `<div class="summary-line"><div><span>WEEKS</span><strong>${total.weeks}</strong></div><div><span>SESSIONS</span><strong>${total.completed}/${total.sessions}</strong></div><div><span>ADHERENCE</span><strong>${Math.round(total.adherence * 100)}%</strong></div></div>`;
-  html += '<table class="scale-table"><thead><tr><th>MICROCYCLE</th><th>TYPE</th><th>DATES</th><th>SESSIONS</th><th>ADHERENCE</th><th>TIME</th></tr></thead><tbody>';
+  html += '<table class="scale-table"><thead><tr><th>WEEK</th><th>TYPE</th><th>DATES</th><th>SESSIONS</th><th>ADHERENCE</th><th>TIME</th></tr></thead><tbody>';
   for (const micro of micros) {
     const stats = microStats(micro.id);
     const current = currentContext().microcycle?.id === micro.id ? ' current-row' : '';
@@ -674,10 +683,10 @@ function renderMesocycle(meso) {
 }
 
 function renderDeload(block) {
-  if (!block) return '<div class="empty">No training block has been authored yet.</div>';
+  if (!block) return '<div class="empty">No training block planned yet.</div>';
   const deloads = blockMicros(block.id).filter((item) => String(item.kind).toLowerCase() === 'deload');
   let html = `<div class="view-head"><div><span>DELOADS</span><h2>${esc(block.title)}</h2></div><small>${deloads.length} recorded</small></div>`;
-  if (!deloads.length) return html + '<div class="empty">No deload microcycles in this block.</div>';
+  if (!deloads.length) return html + '<div class="empty">No deload scheduled in this block.</div>';
   html += '<table class="scale-table"><thead><tr><th>DELOAD</th><th>DATES</th><th>SESSIONS</th><th>PLANNED TIME</th><th>CONTENTS</th></tr></thead><tbody>';
   for (const micro of deloads) {
     const sessions = children(micro.id, 'session');
@@ -689,7 +698,7 @@ function renderDeload(block) {
 }
 
 function renderBlock(block) {
-  if (!block) return '<div class="empty">No training block has been authored yet.</div>';
+  if (!block) return '<div class="empty">No training block planned yet.</div>';
   const mesos = children(block.id, 'mesocycle');
   let html = `<div class="view-head"><div><span>TRAINING BLOCK</span><h2>${esc(block.title)}</h2></div><small>${esc(formatRange(block.startDate, block.endDate))}</small></div>`;
   html += `<div class="summary-line"><div><span>PRIMARY OBJECTIVE</span><strong>${esc(block.objective || block.outcome || '—')}</strong></div><div><span>DURATION</span><strong>${blockMicros(block.id).length} microcycles</strong></div></div>`;
@@ -713,12 +722,12 @@ function eventSummary(event) {
 
 function renderLedger() {
   const list = [...model.events].sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
-  let html = `<div class="view-head"><div><span>HISTORICAL RECORD</span><h2>LEDGER</h2></div><small>${list.length} records</small></div>`;
-  if (!list.length) return html + '<div class="empty">The ledger is empty. Conversation and lived data will populate it over time.</div>';
+  let html = `<div class="view-head"><div><span>HISTORICAL RECORD</span><h2>History</h2></div><small>${list.length} records</small></div>`;
+  if (!list.length) return html + '<div class="empty">No history yet. Your completed sessions, measurements, and plan changes will appear here.</div>';
   html += '<table class="ledger-table"><thead><tr><th>TIME</th><th>DOMAIN</th><th>ACTION</th><th>DATA</th><th></th></tr></thead><tbody>';
   for (const event of list.slice(0, 300)) {
     const domain = event.domain || event.category;
-    html += `<tr><td>${esc(new Date(event.occurredAt).toLocaleString())}</td><td>${esc(String(domain).toUpperCase())}</td><td>${esc(event.action)}</td><td>${esc(eventSummary(event))}</td><td><button class="ledger-delete" data-delete-event="${esc(event.id)}">DELETE</button></td></tr>`;
+    html += `<tr><td>${esc(new Date(event.occurredAt).toLocaleString())}</td><td>${esc(String(domain).toUpperCase())}</td><td>${esc(event.action)}</td><td>${esc(eventSummary(event))}</td><td><button class="ledger-delete" data-delete-event="${esc(event.id)}" aria-label="Delete history record">Delete</button></td></tr>`;
   }
   html += '</tbody></table>';
   return html;
@@ -751,9 +760,9 @@ function renderProtein(micro) {
   const prescription = relevantPrescriptions('protein')[0] || null;
   const target = targetNumber(prescription);
   const unit = prescription?.unit || 'g';
-  let html = `<div class="view-head"><div><span>AGENT-AUTHORED PRESCRIPTION</span><h2>PROTEIN</h2></div><small>${prescription ? esc(`${displayValue(prescription.target)} ${unit}`) : 'No prescription'}</small></div>`;
+  let html = `<div class="view-head"><div><span>AGENT-AUTHORED PRESCRIPTION</span><h2>Protein</h2></div><small>${prescription ? esc(`${displayValue(prescription.target)} ${unit}`) : 'No prescription'}</small></div>`;
   if (!prescription && !eventList({ category: 'observation', domain: 'protein' }).length) {
-    return html + '<div class="empty">No protein target or observations yet.</div>';
+    return html + '<div class="empty">No protein target yet. Ask your agent to add a target and record your intake.</div>';
   }
   html += '<table class="domain-table"><thead><tr><th>DAY</th><th>DATE</th><th>TARGET</th><th>LOGGED</th><th>STATUS</th></tr></thead><tbody>';
   for (const date of datesForCurrentWeek(micro)) {
@@ -771,9 +780,9 @@ function renderSleep(micro) {
   const prescription = relevantPrescriptions('sleep')[0] || null;
   const target = targetNumber(prescription);
   const unit = prescription?.unit || 'h';
-  let html = `<div class="view-head"><div><span>RECOVERY LEDGER</span><h2>SLEEP</h2></div><small>${prescription ? esc(`${displayValue(prescription.target)} ${unit}`) : 'No prescription'}</small></div>`;
+  let html = `<div class="view-head"><div><span>RECOVERY LEDGER</span><h2>Sleep</h2></div><small>${prescription ? esc(`${displayValue(prescription.target)} ${unit}`) : 'No prescription'}</small></div>`;
   if (!prescription && !eventList({ category: 'observation', domain: 'sleep' }).length) {
-    return html + '<div class="empty">No sleep prescription or observations yet.</div>';
+    return html + '<div class="empty">No sleep recorded yet. Ask your agent to add a sleep target and log your nights.</div>';
   }
   html += '<table class="domain-table"><thead><tr><th>DAY</th><th>DATE</th><th>TARGET</th><th>SLEEP</th><th>READINESS</th><th>NOTES</th></tr></thead><tbody>';
   for (const date of datesForCurrentWeek(micro)) {
@@ -788,9 +797,9 @@ function renderSleep(micro) {
 function renderKpis(block) {
   const context = currentContext();
   const kpis = kpisForContext(context);
-  let html = `<div class="view-head"><div><span>AGENT-DEFINED PERFORMANCE OUTCOMES</span><h2>KPI</h2></div><small>${kpis.length} tracked</small></div>`;
-  if (!kpis.length) return html + '<div class="empty">No KPI schema has been defined yet.</div>';
-  html += '<table class="domain-table"><thead><tr><th>KPI</th><th>START</th><th>CURRENT</th><th>CHANGE</th><th>TARGET</th><th>LAST TEST</th></tr></thead><tbody>';
+  let html = `<div class="view-head"><div><span>AGENT-DEFINED PERFORMANCE OUTCOMES</span><h2>Progress</h2></div><small>${kpis.length} tracked</small></div>`;
+  if (!kpis.length) return html + '<div class="empty">Your progress starts with a baseline. Ask your agent to add the measurements you want to track.</div>';
+  html += '<table class="domain-table"><thead><tr><th>MEASUREMENT</th><th>START</th><th>CURRENT</th><th>CHANGE</th><th>TARGET</th><th>LAST TEST</th></tr></thead><tbody>';
   for (const kpi of kpis) {
     const measurements = eventList({ category: 'measurement', entityId: kpi.id }).sort((a, b) => a.occurredAt.localeCompare(b.occurredAt));
     const first = measurements[0];
@@ -799,7 +808,7 @@ function renderKpis(block) {
     const current = Number(last?.data.value);
     const change = Number.isFinite(start) && Number.isFinite(current) ? current - start : null;
     const sign = change > 0 ? '+' : '';
-    html += `<tr><td><strong>${esc(kpi.name)}</strong><span>${esc(kpi.unit)}</span></td><td>${first ? `${start} ${esc(kpi.unit)}` : '—'}</td><td>${last ? `${current} ${esc(kpi.unit)}` : '—'}</td><td>${change == null ? '—' : `${sign}${Math.round(change * 100) / 100} ${esc(kpi.unit)}`}</td><td>${kpi.targetValue ?? '—'} ${esc(kpi.unit)}</td><td>${last ? esc(formatDate(last.date)) : '—'}</td></tr>`;
+    html += `<tr><td><strong>${esc(kpi.name)}</strong><span>${esc(kpi.unit)}</span></td><td>${first ? `${start} ${esc(kpi.unit)}` : '—'}</td><td>${last ? `${current} ${esc(kpi.unit)}` : '—'}</td><td>${change == null ? '—' : `${sign}${Math.round(change * 100) / 100} ${esc(kpi.unit)}`}</td><td>${esc(kpi.targetValue ?? '—')} ${esc(kpi.unit)}</td><td>${last ? esc(formatDate(last.date)) : '—'}</td></tr>`;
   }
   html += '</tbody></table>';
   return html;
@@ -808,22 +817,31 @@ function renderKpis(block) {
 function render() {
   const context = currentContext();
   renderContext();
-
-  document.querySelectorAll('.tabs button').forEach((button) => button.classList.toggle('active', button.dataset.tab === activeTab));
+  document.querySelectorAll('.tabs button').forEach((button) => {
+    const active = button.dataset.tab === activeTab;
+    button.classList.toggle('active', active);
+    if (active) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
   document.querySelectorAll('.tab-view').forEach((section) => section.classList.toggle('active', section.id === `${activeTab}Tab`));
-  document.querySelectorAll('.subtabs button').forEach((button) => button.classList.toggle('active', button.dataset.view === activeView));
-
+  document.querySelectorAll('.subtabs button').forEach((button) => {
+    const active = button.dataset.view === activeView;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+  const tableView = (html) => html.replace(/<table /g, '<div class="table-scroll" role="region" aria-label="Scrollable data table" tabindex="0"><table ').replace(/<\/table>/g, '</table></div>');
   if (activeView === 'microcycle') $('trainingView').innerHTML = renderMicrocycle(context.microcycle);
-  else if (activeView === 'mesocycle') $('trainingView').innerHTML = renderMesocycle(context.mesocycle);
-  else if (activeView === 'deload') $('trainingView').innerHTML = renderDeload(context.block);
+  else if (activeView === 'mesocycle') $('trainingView').innerHTML = tableView(renderMesocycle(context.mesocycle));
+  else if (activeView === 'deload') $('trainingView').innerHTML = tableView(renderDeload(context.block));
   else if (activeView === 'block') $('trainingView').innerHTML = renderBlock(context.block);
-  else $('trainingView').innerHTML = renderLedger();
-
-  $('proteinView').innerHTML = renderProtein(context.microcycle);
-  $('sleepView').innerHTML = renderSleep(context.microcycle);
-  $('kpiView').innerHTML = renderKpis(context.block);
-  $('storageStatus').textContent = `INDEXEDDB · ${model.entities.length} ENTITIES · ${model.events.length} LEDGER RECORDS`;
+  else $('trainingView').innerHTML = tableView(renderLedger());
+  $('proteinView').innerHTML = tableView(renderProtein(context.microcycle));
+  $('sleepView').innerHTML = tableView(renderSleep(context.microcycle));
+  $('kpiView').innerHTML = tableView(renderKpis(context.block));
+  $('historyView').innerHTML = tableView(renderLedger());
+  $('storageStatus').textContent = 'Saved in this browser';
 }
+
 
 async function refresh() {
   await loadModel();
@@ -1086,8 +1104,8 @@ async function registerWebMcp() {
   const modelContext = document.modelContext || navigator.modelContext;
   const status = $('webmcpStatus');
   if (!modelContext?.registerTool) {
-    status.className = 'unavailable';
-    status.innerHTML = '<i></i><span>WebMCP unavailable</span>';
+    status.className = 'mcp-status unavailable';
+    status.innerHTML = '<i></i><span>Agent connection unavailable</span>';
     return;
   }
 
@@ -1234,16 +1252,94 @@ async function registerWebMcp() {
 
   try {
     for (const tool of tools) await modelContext.registerTool(tool);
-    status.className = 'ready';
-    status.innerHTML = `<i></i><span>${tools.length} WebMCP tools ready</span>`;
+    status.className = 'mcp-status ready';
+    status.innerHTML = `<i></i><span>Agent tools available</span>`;
   } catch (error) {
-    status.className = 'unavailable';
+    status.className = 'mcp-status unavailable';
     status.innerHTML = '<i></i><span>WebMCP registration failed</span>';
     console.error(error);
   }
 }
 
 function bindUi() {
+
+  document.addEventListener('click', (event) => {
+    const button = event.target.closest('button');
+    if (!button) return;
+    if (button.hasAttribute('data-open-guide')) {
+      document.querySelector('.settings').open = false;
+      $('agentGuide').showModal();
+    }
+    if (button.hasAttribute('data-close-dialog')) button.closest('dialog').close();
+    if (button.hasAttribute('data-restore')) $('importButton').click();
+    if (button.dataset.day) {
+      selectedDate = button.dataset.day;
+      render();
+      document.querySelector(`[data-day="${selectedDate}"]`)?.focus();
+    }
+    if (button.dataset.weekShift) {
+      const context = currentContext();
+      const weeks = context.block ? blockMicros(context.block.id).filter((week) => week.status !== 'archived').sort((a, b) => a.startDate.localeCompare(b.startDate)) : [];
+      const currentId = weeks.some((week) => week.id === selectedMicroId) ? selectedMicroId : context.microcycle?.id;
+      const index = weeks.findIndex((week) => week.id === currentId);
+      const next = weeks[index + Number(button.dataset.weekShift)];
+      if (index >= 0 && next) {
+        selectedMicroId = next.id;
+        selectedDate = null;
+        render();
+        const replacement = document.querySelector(`[data-week-shift="${button.dataset.weekShift}"]`);
+        if (replacement && !replacement.disabled) replacement.focus();
+        else document.querySelector('[data-day]')?.focus();
+      }
+    }
+    if (button.dataset.logSession) {
+      const session = entity(button.dataset.logSession);
+      if (!session || session.type !== 'session') return;
+      const result = sessionResult(session.id);
+      $('logSessionId').value = session.id;
+      $('logTitle').textContent = session.title;
+      $('logStatus').value = statusForSession(session).label === 'MISSED' ? 'missed' : 'completed';
+      $('logMinutes').value = result?.data.actualMinutes ?? session.durationMinutes ?? '';
+      $('logNotes').value = result?.note || '';
+      $('logError').textContent = '';
+      $('sessionDialog').showModal();
+    }
+  });
+  document.addEventListener('click', (event) => {
+    const settings = document.querySelector('.settings');
+    if (!settings.contains(event.target)) settings.open = false;
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') document.querySelector('.settings').open = false;
+  });
+  $('logStatus').addEventListener('change', () => {
+    if ($('logStatus').value === 'missed') $('logMinutes').value = '0';
+  });
+  $('sessionForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if ($('saveSession').disabled) return;
+    const session = entity($('logSessionId').value);
+    const actualMinutes = Number($('logMinutes').value);
+    if (!session || !Number.isInteger(actualMinutes) || actualMinutes < 0 || actualMinutes > 1440) {
+      $('logError').textContent = 'Enter a valid session duration.';
+      return;
+    }
+    $('saveSession').disabled = true;
+    try {
+      await appendObservations({ observations: [{
+        domain: 'training', entity_id: session.id, date: session.date,
+        data: { status: $('logStatus').value, actualMinutes },
+        note: $('logNotes').value.trim(),
+      }] });
+      $('sessionDialog').close();
+      Array.from(document.querySelectorAll('[data-log-session]')).find((button) => button.dataset.logSession === session.id)?.focus();
+    } catch (error) {
+      $('logError').textContent = error.message || 'Could not save. Please try again.';
+    } finally {
+      $('saveSession').disabled = false;
+    }
+  });
+
   document.querySelector('.tabs').addEventListener('click', (event) => {
     const button = event.target.closest('button[data-tab]');
     if (!button) return;
@@ -1315,5 +1411,7 @@ async function start() {
 
 start().catch((error) => {
   console.error(error);
-  $('storageStatus').textContent = `LEDGER ERROR · ${error.message}`;
+  $('storageStatus').textContent = 'Storage unavailable';
+  $('appError').hidden = false;
+  $('appError').textContent = `Could not load your training data: ${error.message}. Check that browser storage is enabled, then reload.`;
 });

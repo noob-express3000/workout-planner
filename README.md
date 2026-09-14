@@ -58,7 +58,8 @@ Top-level views:
 - Training
 - Protein
 - Sleep
-- KPI
+- Progress
+- History
 
 Training can be inspected at:
 
@@ -66,9 +67,12 @@ Training can be inspected at:
 - Mesocycle
 - Deload
 - Training Block
-- Ledger
 
 All views are projections of the same stored model.
+
+The training view presents a seven-day selector and the selected day's sessions, with a compact weekly summary. Previous/next controls navigate stored weeks. Multiple sessions on a date are displayed together. Users can log completion, duration, and notes from a session; these are appended through the same observation API used by agents. Updating a log preserves the earlier observation in History.
+
+On small screens the session and weekly summary stack vertically. Wider data tables scroll within their own containers. Backup, restore, connection details, and data deletion live in Settings. A new workspace offers setup instructions and backup restoration without adding sample training data.
 
 ## Persistence
 

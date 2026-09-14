@@ -3,77 +3,77 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#09090b" />
-  <meta name="description" content="A persistent coaching ledger operated by conversational agents." />
+  <meta name="theme-color" content="#101010" />
+  <meta name="description" content="Your training, recovery, and progress in one place." />
   <title>Workout Planner</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="./styles.css" />
-  <link rel="stylesheet" href="./ui-cleanup.css" />
 </head>
 <body>
-  <div class="app-layout">
-    <aside class="sidebar">
-      <div class="brand" aria-label="Workout Planner">
-        <span class="brand-mark" aria-hidden="true">W</span>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="app-header">
+    <a class="brand" href="./" aria-label="Workout Planner home"><span class="brand-mark" aria-hidden="true">w.</span><span>Workout<br>Planner</span></a>
+    <nav class="tabs" aria-label="Main navigation">
+      <button class="tab active" data-tab="training" type="button" aria-current="page">Training</button>
+      <button class="tab" data-tab="protein" type="button">Protein</button>
+      <button class="tab" data-tab="sleep" type="button">Sleep</button>
+      <button class="tab" data-tab="kpi" type="button">Progress</button>
+      <button class="tab" data-tab="history" type="button">History</button>
+    </nav>
+    <details class="settings">
+      <summary aria-label="Open settings"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="var(--background)"/><circle cx="15" cy="17" r="3" fill="var(--background)"/></svg></summary>
+      <div class="settings-panel">
+        <p class="eyebrow">Your data</p>
+        <button id="exportButton" type="button">Export backup <span aria-hidden="true">↗</span></button>
+        <button id="importButton" type="button">Restore backup <span aria-hidden="true">↙</span></button>
+        <input id="importInput" type="file" accept="application/json,.json" hidden />
+        <button type="button" data-open-guide>Connect an agent <span aria-hidden="true">↗</span></button>
+        <div id="webmcpStatus" class="mcp-status" role="status"><i></i><span>Checking connection…</span></div>
+        <span id="storageStatus" class="storage-status"></span>
+        <button id="resetButton" class="danger-action" type="button">Delete all data</button>
       </div>
-
-      <nav class="tabs" aria-label="Coaching domains">
-        <button class="tab active" data-tab="training" type="button"><span>Training</span></button>
-        <button class="tab" data-tab="protein" type="button"><span>Protein</span></button>
-        <button class="tab" data-tab="sleep" type="button"><span>Sleep</span></button>
-        <button class="tab" data-tab="kpi" type="button"><span>KPI</span></button>
+    </details>
+  </header>
+  <main id="main" class="workspace">
+    <div id="appError" class="error-banner" role="alert" hidden></div>
+    <section id="trainingTab" class="tab-view active">
+      <div class="page-heading"><div><p class="eyebrow">Your plan</p><h1>Training</h1></div><p id="programTitle" class="program-title"></p></div>
+      <nav class="subtabs" aria-label="Training views">
+        <button class="active" data-view="microcycle" type="button">Week</button>
+        <button data-view="mesocycle" type="button">Cycle</button>
+        <button data-view="block" type="button">Block</button>
+        <button data-view="deload" type="button">Deload</button>
       </nav>
-
-      <div class="sidebar-actions">
-        <span id="webmcpStatus" class="mcp-status" title="WebMCP status"><i></i><span>Checking WebMCP…</span></span>
-        <span id="storageStatus" class="storage-status">LEDGER LOADING</span>
-
-        <div class="data-actions">
-          <button id="exportButton" type="button">Export</button>
-          <button id="importButton" type="button">Import</button>
-          <input id="importInput" type="file" accept="application/json,.json" hidden />
-          <button id="resetButton" class="danger-action" type="button">Clear</button>
-        </div>
-      </div>
-    </aside>
-
-    <section class="workspace">
-      <main>
-        <section id="trainingTab" class="tab-view training-tab active">
-          <div class="section-head training-head">
-            <nav class="subtabs" aria-label="Training scale">
-              <button class="active" data-view="microcycle" type="button">Week</button>
-              <button data-view="mesocycle" type="button">Mesocycle</button>
-              <button data-view="deload" type="button">Deload</button>
-              <button data-view="block" type="button">Block</button>
-              <button data-view="ledger" type="button">History</button>
-            </nav>
-          </div>
-
-          <div class="program-context" aria-label="Current training context">
-            <div><span>Block</span><strong id="contextBlock">—</strong></div>
-            <div><span>Mesocycle</span><strong id="contextMeso">—</strong></div>
-            <div><span>Week</span><strong id="contextMicro">—</strong></div>
-          </div>
-
-          <section id="trainingView" class="view"></section>
-        </section>
-
-        <section id="proteinTab" class="tab-view">
-          <section id="proteinView" class="view"></section>
-        </section>
-
-        <section id="sleepTab" class="tab-view">
-          <section id="sleepView" class="view"></section>
-        </section>
-
-        <section id="kpiTab" class="tab-view">
-          <section id="kpiView" class="view"></section>
-        </section>
-      </main>
+      <section id="trainingView" class="view" aria-label="Training plan"></section>
     </section>
-  </div>
-
+    <section id="proteinTab" class="tab-view"><section id="proteinView" class="view" aria-label="Protein"></section></section>
+    <section id="sleepTab" class="tab-view"><section id="sleepView" class="view" aria-label="Sleep"></section></section>
+    <section id="kpiTab" class="tab-view"><section id="kpiView" class="view" aria-label="Progress"></section></section>
+    <section id="historyTab" class="tab-view"><section id="historyView" class="view" aria-label="History"></section></section>
+  </main>
+  <dialog id="agentGuide" aria-labelledby="guideTitle">
+    <div class="dialog-head"><p class="eyebrow">Getting started</p><button type="button" class="icon-button" data-close-dialog aria-label="Close">×</button></div>
+    <h2 id="guideTitle">Bring your plan here.</h2>
+    <p>Your agent creates the plan. This workspace keeps your sessions and progress together.</p>
+    <ol class="guide-steps">
+      <li><strong>Open this page in a WebMCP-enabled agent browser.</strong><span>A regular browser can display your data, but cannot connect an agent without WebMCP support.</span></li>
+      <li><strong>Tell the agent your goals and constraints.</strong><span>Include your focus areas, equipment, available days, and session length.</span></li>
+      <li><strong>Ask it to save your program to Workout Planner.</strong><span>Your training will appear here when the agent writes the plan.</span></li>
+    </ol>
+    <p class="guide-footnote">Already have a backup? Use Restore backup in settings.</p>
+  </dialog>
+  <dialog id="sessionDialog" aria-labelledby="logTitle">
+    <form id="sessionForm">
+      <div class="dialog-head"><p class="eyebrow">Session check-in</p><button type="button" class="icon-button" data-close-dialog aria-label="Close">×</button></div>
+      <h2 id="logTitle">Log session</h2>
+      <input id="logSessionId" type="hidden" />
+      <label>Result<select id="logStatus"><option value="completed">Completed</option><option value="missed">Missed</option></select></label>
+      <label>Time trained <span class="muted">(minutes)</span><input id="logMinutes" type="number" min="0" max="1440" step="1" required /></label>
+      <label>Notes <span class="muted">(optional)</span><textarea id="logNotes" rows="3" maxlength="2000" placeholder="How did it feel?"></textarea></label>
+      <p id="logError" class="form-error" role="alert"></p>
+      <button id="saveSession" class="primary-button" type="submit">Save session <span aria-hidden="true">↗</span></button>
+    </form>
+  </dialog>
   <script src="./app.js"></script>
   <script src="./ledger-io.js"></script>
 </body>
