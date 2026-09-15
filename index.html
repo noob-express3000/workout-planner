@@ -8,6 +8,24 @@
   <title>Security Ledger</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="./styles.css" />
+  <style>
+    /* Keep each tab focused on its actual content. */
+    #stats,
+    .toolbar .eyebrow,
+    .capture-panel > .eyebrow,
+    .capture-panel > h2,
+    .capture-panel > p {
+      display: none !important;
+    }
+
+    .toolbar {
+      margin-bottom: 1rem;
+    }
+
+    .capture-panel {
+      padding-top: 0;
+    }
+  </style>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -16,7 +34,8 @@
     <nav class="tabs" aria-label="Primary navigation">
       <button class="tab active" data-view="inbox" type="button">Inbox</button>
       <button class="tab" data-view="knowledge" type="button">Notes</button>
-      <button class="tab" data-view="challenges" type="button">Records</button>
+      <button class="tab" data-view="challenges" type="button">Challenges</button>
+      <button class="tab" data-view="sources" type="button">Sources</button>
     </nav>
     <div class="header-actions">
       <div id="webmcpStatus" class="mcp-status" role="status"><i></i><span>Checking WebMCP</span></div>
@@ -37,7 +56,7 @@
   <main id="main" class="workspace">
     <div id="appError" class="error-banner" role="alert" hidden></div>
     <section class="toolbar" aria-label="Controls">
-      <div><p class="eyebrow" id="viewEyebrow">Inbox</p><h1 id="viewTitle">Inbox</h1></div>
+      <div><p class="eyebrow" id="viewEyebrow"></p><h1 id="viewTitle">Inbox</h1></div>
       <label class="search-field"><span class="sr-only">Search</span><input id="searchInput" type="search" placeholder="Search" autocomplete="off" /></label>
     </section>
     <section id="stats" class="stats" aria-label="Record totals"></section>
