@@ -4,36 +4,30 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#0b0c0e" />
-  <meta name="description" content="A local-first security study ledger populated by your AI agent through WebMCP." />
+  <meta name="description" content="Local notes, records, and sources." />
   <title>Security Ledger</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
-
   <header class="app-header">
-    <a class="brand" href="./" aria-label="Security Ledger home">
-      <span class="brand-mark" aria-hidden="true">//</span>
-      <span>Security Ledger</span>
-    </a>
-
+    <a class="brand" href="./" aria-label="Security Ledger home"><span>Security Ledger</span></a>
     <nav class="tabs" aria-label="Primary navigation">
       <button class="tab active" data-view="inbox" type="button">Inbox</button>
-      <button class="tab" data-view="knowledge" type="button">Knowledge</button>
+      <button class="tab" data-view="knowledge" type="button">Notes</button>
       <button class="tab" data-view="challenges" type="button">Challenges</button>
       <button class="tab" data-view="sources" type="button">Sources</button>
     </nav>
-
     <div class="header-actions">
-      <div id="webmcpStatus" class="mcp-status" role="status"><i></i><span>Checking agent tools</span></div>
-      <button id="guideButton" class="quiet-button" type="button">Agent guide</button>
+      <div id="webmcpStatus" class="mcp-status" role="status"><i></i><span>Checking WebMCP</span></div>
+      <button id="guideButton" class="quiet-button" type="button">WebMCP</button>
       <details class="settings">
         <summary aria-label="Open settings">•••</summary>
         <div class="settings-panel">
-          <p class="eyebrow">Local data</p>
-          <button id="exportButton" type="button">Export backup</button>
-          <button id="importButton" type="button">Restore backup</button>
+          <p class="eyebrow">Data</p>
+          <button id="exportButton" type="button">Export</button>
+          <button id="importButton" type="button">Import</button>
           <input id="importInput" type="file" accept="application/json,.json" hidden />
           <span id="storageStatus" class="storage-status"></span>
           <button id="resetButton" class="danger-action" type="button">Delete all data</button>
@@ -41,55 +35,26 @@
       </details>
     </div>
   </header>
-
   <main id="main" class="workspace">
     <div id="appError" class="error-banner" role="alert" hidden></div>
-
-    <section class="toolbar" aria-label="Ledger controls">
-      <div>
-        <p class="eyebrow" id="viewEyebrow">Staging queue</p>
-        <h1 id="viewTitle">Inbox</h1>
-      </div>
-      <label class="search-field">
-        <span class="sr-only">Search ledger</span>
-        <input id="searchInput" type="search" placeholder="Search local knowledge" autocomplete="off" />
-      </label>
+    <section class="toolbar" aria-label="Controls">
+      <div><p class="eyebrow" id="viewEyebrow">Inbox</p><h1 id="viewTitle">Inbox</h1></div>
+      <label class="search-field"><span class="sr-only">Search</span><input id="searchInput" type="search" placeholder="Search" autocomplete="off" /></label>
     </section>
-
-    <section id="stats" class="stats" aria-label="Ledger totals"></section>
+    <section id="stats" class="stats" aria-label="Record totals"></section>
     <section id="content" class="content" aria-live="polite"></section>
   </main>
-
   <dialog id="recordDialog" class="record-dialog">
-    <div class="dialog-head">
-      <div>
-        <p id="recordType" class="eyebrow"></p>
-        <h2 id="recordTitle"></h2>
-      </div>
-      <button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button>
-    </div>
+    <div class="dialog-head"><div><p id="recordType" class="eyebrow"></p><h2 id="recordTitle"></h2></div><button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button></div>
     <div id="recordBody" class="record-body"></div>
   </dialog>
-
   <dialog id="agentGuide" class="guide-dialog">
-    <div class="dialog-head">
-      <div>
-        <p class="eyebrow">Control plane</p>
-        <h2>Let the agent structure the mess.</h2>
-      </div>
-      <button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button>
-    </div>
+    <div class="dialog-head"><div><p class="eyebrow">WebMCP</p><h2>Connection</h2></div><button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button></div>
     <div class="guide-copy">
-      <p>Security Ledger is not the tutor. It is the persistent staging surface and technical memory behind the tutor.</p>
-      <ol>
-        <li>Drop raw material into Inbox: narration, pasted notes, URLs, screenshots, or files.</li>
-        <li>In a WebMCP-enabled agent session, ask the agent to inspect the inbox and turn useful material into structured notes, sources, challenges, and solve records.</li>
-        <li>Use the same ledger during practice. The agent can retrieve prior concepts and patterns, but should stay at high-level guidance rather than solving the challenge for you.</li>
-      </ol>
-      <p class="muted">OWASP Top 10 is a useful starting point, not a schema boundary. Domains are intentionally open-ended.</p>
+      <p>This site stores the project data used by the connected agent.</p>
+      <ol><li>Add material to Inbox.</li><li>Ask the agent to organize it into records.</li><li>Use the stored records during later work.</li></ol>
     </div>
   </dialog>
-
   <script src="./app.js"></script>
 </body>
 </html>
