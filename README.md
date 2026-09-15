@@ -1,146 +1,120 @@
-# Workout Planner
+# Security Ledger
 
-A browser-native coaching ledger for an Alexa+/agentic coaching experience.
+A local-first security study ledger designed to sit behind an external AI tutor.
 
-The website is **not** the coach and it does not generate workout plans by itself. Conversation happens outside the site. The agent authors structured coaching state through WebMCP, and the site persists and renders that state over time.
-
-```text
-Conversation
-    ↓
-Agent
-    ↓
-WebMCP
-    ↓
-Coaching state + historical ledger
-    ↓
-Workout Planner UI
-```
-
-## Product thesis
-
-Workout Planner is persistent visual memory for a conversational coach.
-
-A fresh install starts empty. There are no hardcoded routines, lifts, KPIs, deload schedules, protein targets, or training philosophies. The agent decides what is relevant from conversation and writes that structure into the ledger.
-
-The system separates:
-
-- **current coaching state** — what the plan currently looks like
-- **historical events** — what happened and how the plan changed
-
-Program edits therefore do not erase the previous state. Before/after values are retained in the ledger.
-
-## Program hierarchy
+The website is deliberately **not** the tutor and it does not try to solve CTFs. It is the staging surface and persistent technical memory the tutor can read and populate through WebMCP.
 
 ```text
-Program
-└── Training Block
-    └── Mesocycle
-        └── Microcycle
-            └── Session
-                └── Activities[]
+raw narration / notes / URLs / screenshots / files
+                      ↓
+                    Inbox
+                      ↓
+                 AI / agent
+                      ↓ WebMCP
+      notes · sources · challenges · solves
+                      ↓
+              persistent local ledger
 ```
 
-Structural constraints:
+## Product loop
 
-- training block: maximum six calendar months
-- mesocycle: maximum four weeks
-- microcycle: maximum one week
-- sessions must fall inside their microcycle
+The primary workflow is:
 
-The site validates structure only. It does not prescribe what a block, session, or activity should contain.
+```text
+study source → simplify + store → practice challenge → record solve
+```
 
-Activities are intentionally open-ended. An agent may write strength work, running intervals, boxing rounds, mobility, swimming, cycling, testing, or other training data using the same session surface.
+During practice, the AI should retrieve prior concepts, patterns, and the user's own history at a **high level of abstraction**. The product is not designed around handing the user exact next exploit steps.
 
-## Views
+OWASP Top 10 is an initial study domain, not a schema limit. Records can cover web security, Active Directory, privilege escalation, reversing, cryptography, forensics, networking, cloud, mobile, or any future domain.
 
-Top-level views:
+## Interface
 
-- Training
-- Protein
-- Sleep
-- Progress
-- History
+The site has four surfaces:
 
-Training can be inspected at:
+- **Inbox** — staging queue for rough input. Paste text, narrate with browser speech recognition, add a URL, and attach local screenshots/files.
+- **Knowledge** — structured technical notes created by the agent.
+- **Challenges** — challenge metadata plus full solve records.
+- **Sources** — retained evidence trail for external material.
 
-- Microcycle
-- Mesocycle
-- Deload
-- Training Block
+The user should rarely need to manually fill structured forms. The agent is expected to populate the ledger.
 
-All views are projections of the same stored model.
+## Data model
 
-The training workspace follows Program → Block → Mesocycle → Microcycle → Session. Parent selectors constrain child selectors; selecting a different parent clears the previous descendant selection. Browsing stored programs, including historical ones, does not change the agent's active program.
+All long-lived data is stored in IndexedDB in the browser. There is no account system or cloud database.
 
-Program, block, and mesocycle tables drill down into their children. A microcycle lists all sessions in chronological order, including multiple sessions on the same day. Expand a session for its activities, prescriptions, and recorded observations, or select one session directly. Deloads remain microcycles within their mesocycle and are also accessible from the selected block's Deloads view.
+Record types:
 
-The interface uses compact selectors, tables, and expandable rows. There is no dashboard summary panel or manual check-in flow. Agents continue to append observations through WebMCP. Backup, restore, and connection instructions remain in Settings.
+- `capture`
+- `note`
+- `source`
+- `challenge`
+- `solve`
 
-## Persistence
+Solve records can retain:
 
-Long-lived state is stored in IndexedDB.
+- steps
+- commands
+- payloads
+- failed attempts
+- lessons
+- artifacts
+- sources
+- challenge links
+- completion time
 
-Object stores:
+Inbox captures can retain raw text, a source URL, tags, domain, screenshots, and small files. Attachments are stored locally as data URLs and are omitted from WebMCP responses to avoid flooding agent context; attachment metadata remains visible to the agent.
 
-- `entities` — programs, blocks, mesocycles, microcycles, sessions, prescriptions, KPIs
-- `events` — observations, measurements, program changes, and system history
-- `meta` — active program/block and schema metadata
-
-The browser requests persistent storage where supported. The complete ledger can also be exported to and restored from JSON.
-
-Historical data remains until the user explicitly deletes it.
-
-See [`DATA_MODEL.md`](./DATA_MODEL.md) for the schema.
+See [`DATA_MODEL.md`](./DATA_MODEL.md) for field details.
 
 ## WebMCP control plane
 
-The current site exposes:
+The page exposes eleven tools when `document.modelContext` / `navigator.modelContext` is available:
 
 ```text
-get_coaching_state
-get_history
-apply_program
-patch_program
-append_observation
-append_measurement
-set_prescriptions
-set_kpi_schema
-set_active_program
+get_security_state
+get_inbox
+search_knowledge
+capture_material
+upsert_source
+upsert_note
+upsert_challenge
+record_solve
+mark_inbox_processed
+link_records
 delete_record
 ```
 
-### Initial population
-
-The agent can construct an entire program in one call with `apply_program`.
+### Typical processing pass
 
 ```text
-User conversation
-      ↓
-agent determines goals + constraints
-      ↓
-apply_program(...)
-      ↓
-website populates
+get_inbox
+  ↓
+upsert_source
+  ↓
+upsert_note / upsert_challenge / record_solve
+  ↓
+mark_inbox_processed
 ```
 
-### Ongoing coaching
-
-Later conversation should make smaller changes:
+### Retrieval during study or practice
 
 ```text
-patch_program(...)
-append_observation(...)
-append_measurement(...)
-set_prescriptions(...)
+search_knowledge(query, types, domains)
 ```
 
-Every meaningful program mutation is recorded.
+The WebMCP descriptions explicitly frame retrieval as conceptual/high-level support rather than an automated challenge solver.
 
-## Meal Planner V2 relationship
+## Local-first behavior
 
-Meal Planner V2 remains a separate application and is not modified by this project.
-
-The two applications share the same philosophy: a simple browser-native surface exposes structured state to an external agent. Workout Planner may store a protein prescription while Meal Planner independently handles recipes, meals, and food planning needed to satisfy it.
+- IndexedDB persistence
+- browser persistent-storage request where supported
+- JSON export / restore
+- no account
+- no backend
+- no API key
+- no embedded model
+- attachments stay in the browser unless the user exports the ledger
 
 ## Local run
 
@@ -152,10 +126,4 @@ Open `http://localhost:8080`.
 
 ## Render
 
-`render.yaml` provisions a zero-build static site.
-
-## Scope
-
-No account system, cloud database, embedded LLM, agent framework, or Alexa backend is required for the current simulated experience.
-
-The difficult part is the persistent user-specific coaching model and the agent-operable interface around it.
+`render.yaml` provisions the repository as a zero-build static site.
