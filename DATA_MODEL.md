@@ -1,383 +1,129 @@
-# Workout Planner data model
+# Security Ledger data model
 
-Workout Planner is a persistent coaching ledger. The website renders structured coaching state authored by an external agent and retains historical observations and program mutations until explicitly deleted.
+Schema version: `1`
 
-## Storage
+Security Ledger uses one IndexedDB object store for records plus a small `meta` store.
 
-IndexedDB database: `workout-planner-ledger`.
+## Common record fields
 
-Object stores:
+Every record contains:
 
-- `entities` — current structured coaching state
-- `events` — historical observations and changes
-- `meta` — active context and schema metadata
-
-The model intentionally separates **what the plan is now** from **what happened over time**.
-
-## Entity hierarchy
-
-```text
-Program
-└── Block
-    └── Mesocycle
-        └── Microcycle
-            └── Session
-                └── activities[]
-```
-
-Additional entities may attach to a program or block:
-
-```text
-Prescription
-KPI
-```
-
-### Program
-
-```js
+```json
 {
-  id,
-  type: "program",
-  parentId: null,
-  title,
-  objective,
-  startDate,
-  endDate,
-  status,
-  metadata,
-  createdAt,
-  updatedAt
+  "id": "note-...",
+  "type": "note",
+  "title": "SQL injection context boundaries",
+  "domain": "web",
+  "tags": ["sqli", "owasp"],
+  "createdAt": "2026-09-15T17:00:00.000Z",
+  "updatedAt": "2026-09-15T17:00:00.000Z"
 }
 ```
 
-A program is a container for one or more training blocks. The site does not decide the objective.
+`domain` is intentionally free-form. The schema does not encode a fixed security taxonomy.
 
-### Block
+## capture
 
-```js
+Raw material staged before the agent structures it.
+
+```json
 {
-  id,
-  type: "block",
-  parentId: programId,
-  title,
-  objective,
-  outcome,
-  startDate,
-  endDate,
-  order,
-  metadata,
-  status,
-  createdAt,
-  updatedAt
+  "type": "capture",
+  "rawText": "rough narration or pasted material",
+  "url": "https://example.com/reference",
+  "status": "unprocessed",
+  "generatedRecordIds": [],
+  "attachments": [
+    {
+      "id": "attachment-...",
+      "name": "screen.png",
+      "type": "image/png",
+      "size": 123456,
+      "dataUrl": "data:image/png;base64,..."
+    }
+  ]
 }
 ```
 
-A block may last at most six calendar months.
+Files are stored locally. WebMCP responses remove `dataUrl` and expose only metadata plus `storedLocally: true`.
 
-### Mesocycle
+## source
 
-```js
+```json
 {
-  id,
-  type: "mesocycle",
-  parentId: blockId,
-  title,
-  objective,
-  startDate,
-  endDate,
-  order,
-  metadata,
-  status,
-  createdAt,
-  updatedAt
+  "type": "source",
+  "title": "OWASP Testing Guide",
+  "url": "https://...",
+  "author": "",
+  "publisher": "OWASP",
+  "citation": "",
+  "notes": "",
+  "accessedAt": "2026-09-15T17:00:00.000Z"
 }
 ```
 
-A mesocycle may last at most four weeks.
+## note
 
-### Microcycle
+Structured technical memory.
 
-```js
+```json
 {
-  id,
-  type: "microcycle",
-  parentId: mesocycleId,
-  title,
-  objective,
-  kind,
-  startDate,
-  endDate,
-  order,
-  metadata,
-  status,
-  createdAt,
-  updatedAt
+  "type": "note",
+  "topic": "SQL injection",
+  "summary": "short retrieval-oriented summary",
+  "abstraction": "high-level explanation",
+  "content": "deeper technical notes",
+  "patterns": ["observable pattern"],
+  "commands": ["syntax or command worth retaining"],
+  "sourceIds": ["source-..."],
+  "challengeIds": ["challenge-..."],
+  "relatedIds": ["note-..."]
 }
 ```
 
-A microcycle may last at most one week.
+## challenge
 
-`kind` is agent-authored. `deload` is recognized by the UI as a useful projection, but it is not a required training philosophy.
-
-### Session
-
-```js
+```json
 {
-  id,
-  type: "session",
-  parentId: microcycleId,
-  date,
-  title,
-  objective,
-  durationMinutes,
-  activities: [],
-  metadata,
-  status,
-  createdAt,
-  updatedAt
+  "type": "challenge",
+  "platform": "HTB",
+  "url": "https://...",
+  "category": "web",
+  "difficulty": "medium",
+  "status": "active",
+  "objective": "what the lab asks the learner to accomplish",
+  "notes": "context worth preserving",
+  "flags": [],
+  "sourceIds": []
 }
 ```
 
-Sessions must fall within their parent microcycle.
+## solve
 
-### Activity
+A complete or evolving solution record.
 
-Activities intentionally have an open schema.
-
-Strength example:
-
-```js
+```json
 {
-  type: "strength",
-  name: "Bench press",
-  prescription: {
-    sets: 5,
-    reps: 5,
-    loadKg: 80,
-    rir: 2
-  }
+  "type": "solve",
+  "challengeId": "challenge-...",
+  "overview": "what mattered in the solve",
+  "steps": ["step 1", "step 2"],
+  "commands": ["command"],
+  "payloads": ["payload"],
+  "failedAttempts": ["what failed and why"],
+  "lessons": ["transferable lesson"],
+  "artifacts": ["file/hash/request/response metadata"],
+  "sourceIds": ["source-..."],
+  "completedAt": "2026-09-15T17:00:00.000Z"
 }
 ```
 
-Running example:
+## Meta store
 
-```js
-{
-  type: "running",
-  name: "Intervals",
-  prescription: {
-    repetitions: 6,
-    distanceMeters: 400,
-    targetSeconds: 92
-  }
-}
-```
-
-Boxing example:
-
-```js
-{
-  type: "boxing",
-  name: "Bag rounds",
-  prescription: {
-    rounds: 8,
-    workSeconds: 180,
-    restSeconds: 60
-  }
-}
-```
-
-The site stores and renders the activity. It does not decide which activity is correct.
-
-### Prescription
-
-```js
-{
-  id,
-  type: "prescription",
-  parentId,
-  domain,
-  label,
-  target,
-  unit,
-  startDate,
-  endDate,
-  metadata,
-  status,
-  createdAt,
-  updatedAt
-}
-```
-
-`domain` is open-ended. Current UI projections understand `protein` and `sleep`, while an agent can also store recovery or other coaching targets.
-
-### KPI
-
-```js
-{
-  id,
-  type: "kpi",
-  parentId,
-  name,
-  unit,
-  targetValue,
-  direction,
-  metadata,
-  status,
-  createdAt,
-  updatedAt
-}
-```
-
-KPIs are agent-defined. The website contains no predefined benchmark list.
-
-## Event ledger
-
-Events append lived data and historical mutations without replacing earlier records.
-
-```js
-{
-  id,
-  category,
-  action,
-  domain,
-  entityId,
-  occurredAt,
-  date,
-  data,
-  tags,
-  note
-}
-```
-
-Current event categories:
-
-```text
-observation
-measurement
-program
-system
-```
-
-Examples:
-
-```text
-observation / training
-observation / protein
-observation / sleep
-observation / pain
-observation / readiness
-measurement / KPI measurement
-program / program_applied
-program / entity_updated
-program / prescription_updated
-program / kpi_updated
-system / entity_deleted
-```
-
-The `domain` field is deliberately open-ended so future coaching conversations can store useful observations without database migrations for every new concept.
-
-## Mutation rules
-
-### Initial authorship
-
-`apply_program` writes an entire agent-authored hierarchy in one transaction.
-
-The site validates only structural rules:
-
-- parent-child relationships
-- date ranges
-- block/mesocycle/microcycle duration limits
-- session dates
-- entity identity
-
-It does **not** validate training philosophy.
-
-### Ongoing changes
-
-`patch_program` updates one or more current entities atomically.
-
-Each mutation emits a program event containing:
-
-```js
-{
-  before,
-  after,
-  summary
-}
-```
-
-This preserves how the plan evolved.
-
-### Observations
-
-`append_observation` records lived data without mutating the plan.
-
-Examples include:
-
-- session completion
-- protein intake
-- sleep
-- soreness
-- readiness
-- pain
-- schedule constraints
-- subjective feedback
-
-### Measurements
-
-`append_measurement` writes a numeric measurement against an existing KPI entity.
-
-## Current state vs history
-
-```text
-entities[]
-    ↓
-current coaching state
-
- events[]
-    ↓
-what happened + how the plan changed
-```
-
-The agent can read both through WebMCP.
-
-Over time this enables questions such as:
-
-```text
-What programming coincided with the fastest bench progress?
-Which mesocycles had the best adherence?
-When did fatigue begin rising?
-What sleep patterns preceded poor sessions?
-Did the previous deload improve the target KPI?
-```
-
-The website itself does not answer those questions autonomously. It preserves enough structured history for the conversational agent to reason about them.
-
-## Deletion
-
-Data is retained unless explicitly deleted.
-
-`delete_record` supports:
-
-- deleting a single event
-- deleting an entity
-- deleting an entity subtree only when `cascade=true` is explicitly supplied
-
-Deleting an entity subtree also removes events directly attached to those entities.
-
-## Portability
-
-The complete local ledger can be exported as JSON:
+Current metadata:
 
 ```text
 schemaVersion
-exportedAt
-entities[]
-events[]
-meta{}
 ```
 
-Import replaces the current local ledger transactionally after validation.
-
-This provides a migration path to later synchronization or account-backed storage without changing the core data model.
+The repo intentionally avoids user accounts and server-side identity state.
