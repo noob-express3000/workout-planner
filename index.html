@@ -3,67 +3,93 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#101010" />
-  <meta name="description" content="Your training, recovery, and progress in one place." />
-  <title>Workout Planner</title>
+  <meta name="theme-color" content="#0b0c0e" />
+  <meta name="description" content="A local-first security study ledger populated by your AI agent through WebMCP." />
+  <title>Security Ledger</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
+
   <header class="app-header">
-    <a class="brand" href="./" aria-label="Workout Planner home"><span class="brand-mark" aria-hidden="true">w.</span><span>Workout<br>Planner</span></a>
-    <nav class="tabs" aria-label="Main navigation">
-      <button class="tab active" data-tab="training" type="button" aria-current="page">Training</button>
-      <button class="tab" data-tab="protein" type="button">Protein</button>
-      <button class="tab" data-tab="sleep" type="button">Sleep</button>
-      <button class="tab" data-tab="kpi" type="button">Progress</button>
-      <button class="tab" data-tab="history" type="button">History</button>
+    <a class="brand" href="./" aria-label="Security Ledger home">
+      <span class="brand-mark" aria-hidden="true">//</span>
+      <span>Security Ledger</span>
+    </a>
+
+    <nav class="tabs" aria-label="Primary navigation">
+      <button class="tab active" data-view="inbox" type="button">Inbox</button>
+      <button class="tab" data-view="knowledge" type="button">Knowledge</button>
+      <button class="tab" data-view="challenges" type="button">Challenges</button>
+      <button class="tab" data-view="sources" type="button">Sources</button>
     </nav>
-    <details class="settings">
-      <summary aria-label="Open settings"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="var(--background)"/><circle cx="15" cy="17" r="3" fill="var(--background)"/></svg></summary>
-      <div class="settings-panel">
-        <p class="eyebrow">Your data</p>
-        <button id="exportButton" type="button">Export backup <span aria-hidden="true">↗</span></button>
-        <button id="importButton" type="button">Restore backup <span aria-hidden="true">↙</span></button>
-        <input id="importInput" type="file" accept="application/json,.json" hidden />
-        <button type="button" data-open-guide>Connect an agent <span aria-hidden="true">↗</span></button>
-        <div id="webmcpStatus" class="mcp-status" role="status"><i></i><span>Checking connection…</span></div>
-        <span id="storageStatus" class="storage-status"></span>
-        <button id="resetButton" class="danger-action" type="button">Delete all data</button>
-      </div>
-    </details>
+
+    <div class="header-actions">
+      <div id="webmcpStatus" class="mcp-status" role="status"><i></i><span>Checking agent tools</span></div>
+      <button id="guideButton" class="quiet-button" type="button">Agent guide</button>
+      <details class="settings">
+        <summary aria-label="Open settings">•••</summary>
+        <div class="settings-panel">
+          <p class="eyebrow">Local data</p>
+          <button id="exportButton" type="button">Export backup</button>
+          <button id="importButton" type="button">Restore backup</button>
+          <input id="importInput" type="file" accept="application/json,.json" hidden />
+          <span id="storageStatus" class="storage-status"></span>
+          <button id="resetButton" class="danger-action" type="button">Delete all data</button>
+        </div>
+      </details>
+    </div>
   </header>
+
   <main id="main" class="workspace">
     <div id="appError" class="error-banner" role="alert" hidden></div>
-    <section id="trainingTab" class="tab-view active">
-      <nav id="hierarchy" class="hierarchy" aria-label="Programming hierarchy"></nav>
-      <nav class="subtabs" aria-label="Programming scale">
-        <button data-view="program" type="button">Program</button>
-        <button data-view="block" type="button">Block</button>
-        <button data-view="mesocycle" type="button">Mesocycle</button>
-        <button class="active" data-view="microcycle" type="button">Microcycle</button>
-        <button data-view="deload" type="button">Deloads</button>
-      </nav>
-      <section id="trainingView" class="view" tabindex="-1" aria-label="Training plan"></section>
+
+    <section class="toolbar" aria-label="Ledger controls">
+      <div>
+        <p class="eyebrow" id="viewEyebrow">Staging queue</p>
+        <h1 id="viewTitle">Inbox</h1>
+      </div>
+      <label class="search-field">
+        <span class="sr-only">Search ledger</span>
+        <input id="searchInput" type="search" placeholder="Search local knowledge" autocomplete="off" />
+      </label>
     </section>
-    <section id="proteinTab" class="tab-view"><section id="proteinView" class="view" aria-label="Protein"></section></section>
-    <section id="sleepTab" class="tab-view"><section id="sleepView" class="view" aria-label="Sleep"></section></section>
-    <section id="kpiTab" class="tab-view"><section id="kpiView" class="view" aria-label="Progress"></section></section>
-    <section id="historyTab" class="tab-view"><section id="historyView" class="view" aria-label="History"></section></section>
+
+    <section id="stats" class="stats" aria-label="Ledger totals"></section>
+    <section id="content" class="content" aria-live="polite"></section>
   </main>
-  <dialog id="agentGuide" aria-labelledby="guideTitle">
-    <div class="dialog-head"><p class="eyebrow">Getting started</p><button type="button" class="icon-button" data-close-dialog aria-label="Close">×</button></div>
-    <h2 id="guideTitle">Bring your plan here.</h2>
-    <p>Your agent creates the plan. This workspace keeps your sessions and progress together.</p>
-    <ol class="guide-steps">
-      <li><strong>Open this page in a WebMCP-enabled agent browser.</strong><span>A regular browser can display your data, but cannot connect an agent without WebMCP support.</span></li>
-      <li><strong>Tell the agent your goals and constraints.</strong><span>Include your focus areas, equipment, available days, and session length.</span></li>
-      <li><strong>Ask it to save your program to Workout Planner.</strong><span>Your training will appear here when the agent writes the plan.</span></li>
-    </ol>
-    <p class="guide-footnote">Already have a backup? Use Restore backup in settings.</p>
+
+  <dialog id="recordDialog" class="record-dialog">
+    <div class="dialog-head">
+      <div>
+        <p id="recordType" class="eyebrow"></p>
+        <h2 id="recordTitle"></h2>
+      </div>
+      <button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button>
+    </div>
+    <div id="recordBody" class="record-body"></div>
   </dialog>
+
+  <dialog id="agentGuide" class="guide-dialog">
+    <div class="dialog-head">
+      <div>
+        <p class="eyebrow">Control plane</p>
+        <h2>Let the agent structure the mess.</h2>
+      </div>
+      <button class="icon-button" type="button" data-close-dialog aria-label="Close">×</button>
+    </div>
+    <div class="guide-copy">
+      <p>Security Ledger is not the tutor. It is the persistent staging surface and technical memory behind the tutor.</p>
+      <ol>
+        <li>Drop raw material into Inbox: narration, pasted notes, URLs, screenshots, or files.</li>
+        <li>In a WebMCP-enabled agent session, ask the agent to inspect the inbox and turn useful material into structured notes, sources, challenges, and solve records.</li>
+        <li>Use the same ledger during practice. The agent can retrieve prior concepts and patterns, but should stay at high-level guidance rather than solving the challenge for you.</li>
+      </ol>
+      <p class="muted">OWASP Top 10 is a useful starting point, not a schema boundary. Domains are intentionally open-ended.</p>
+    </div>
+  </dialog>
+
   <script src="./app.js"></script>
-  <script src="./ledger-io.js"></script>
 </body>
 </html>
