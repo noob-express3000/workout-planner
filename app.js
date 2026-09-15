@@ -1,107 +1,38 @@
-const DB_NAME = 'workout-planner-ledger';
+const DB_NAME = 'security-study-ledger';
 const DB_VERSION = 1;
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 1;
+const MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024;
 
 let db;
-let model = { entities: [], events: [], meta: {} };
-let activeTab = 'training';
-let activeView = 'microcycle';
-let inspected = {};
+let records = [];
+let meta = {};
+let activeView = 'inbox';
+let searchQuery = '';
+let recognition = null;
 
 const $ = (id) => document.getElementById(id);
 const clone = (value) => JSON.parse(JSON.stringify(value));
-const uid = (prefix) => `${prefix}-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
+const uid = (prefix = 'record') => `${prefix}-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
+const nowIso = () => new Date().toISOString();
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
 }[char]));
-
-function dateKey(value) {
-  const date = value instanceof Date ? new Date(value) : new Date(`${String(value).slice(0, 10)}T00:00:00`);
-  if (Number.isNaN(date.getTime())) throw new Error(`Invalid date: ${value}`);
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
-function parseDate(value, label = 'date') {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    throw new Error(`${label} must use YYYY-MM-DD.`);
-  }
-  const date = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(date.getTime()) || dateKey(date) !== value) throw new Error(`${label} is not a valid date.`);
-  return date;
-}
-
-function addDays(value, days) {
-  const date = value instanceof Date ? new Date(value) : parseDate(dateKey(value));
-  date.setDate(date.getDate() + Number(days));
-  return date;
-}
-
-function inclusiveDays(start, end) {
-  return Math.floor((parseDate(end).getTime() - parseDate(start).getTime()) / 86400000) + 1;
-}
-
-function addMonths(value, months) {
-  const date = parseDate(value);
-  const day = date.getDate();
-  date.setDate(1);
-  date.setMonth(date.getMonth() + months);
-  const last = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-  date.setDate(Math.min(day, last));
-  return date;
-}
-
-function mondayOf(value = new Date()) {
-  const date = value instanceof Date ? new Date(value) : parseDate(dateKey(value));
-  date.setHours(0, 0, 0, 0);
-  const day = date.getDay();
-  date.setDate(date.getDate() + (day === 0 ? -6 : 1 - day));
-  return date;
-}
-
-function formatDate(value, options = { month: 'short', day: 'numeric' }) {
-  if (!value) return '—';
-  return new Intl.DateTimeFormat(undefined, options).format(parseDate(dateKey(value)));
-}
-
-function formatRange(start, end) {
-  if (!start || !end) return '—';
-  return `${formatDate(start)} – ${formatDate(end)}`;
-}
-
-function pick(object, ...keys) {
-  for (const key of keys) {
-    if (object?.[key] !== undefined) return object[key];
-  }
-  return undefined;
-}
 
 function openDb() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
       const database = request.result;
-      if (!database.objectStoreNames.contains('entities')) {
-        const entities = database.createObjectStore('entities', { keyPath: 'id' });
-        entities.createIndex('type', 'type', { unique: false });
-        entities.createIndex('parentId', 'parentId', { unique: false });
-        entities.createIndex('startDate', 'startDate', { unique: false });
+      if (!database.objectStoreNames.contains('records')) {
+        const store = database.createObjectStore('records', { keyPath: 'id' });
+        store.createIndex('type', 'type', { unique: false });
+        store.createIndex('updatedAt', 'updatedAt', { unique: false });
+        store.createIndex('status', 'status', { unique: false });
       }
-      if (!database.objectStoreNames.contains('events')) {
-        const events = database.createObjectStore('events', { keyPath: 'id' });
-        events.createIndex('category', 'category', { unique: false });
-        events.createIndex('entityId', 'entityId', { unique: false });
-        events.createIndex('occurredAt', 'occurredAt', { unique: false });
-        events.createIndex('date', 'date', { unique: false });
-      }
-      if (!database.objectStoreNames.contains('meta')) {
-        database.createObjectStore('meta', { keyPath: 'key' });
-      }
+      if (!database.objectStoreNames.contains('meta')) database.createObjectStore('meta', { keyPath: 'key' });
     };
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error || new Error('Could not open the coaching ledger.'));
+    request.onerror = () => reject(request.error || new Error('Could not open local storage.'));
   });
 }
 
@@ -113,8 +44,8 @@ function storeRequest(storeName, mode, operation) {
     try { request = operation(store); }
     catch (error) { reject(error); return; }
     transaction.oncomplete = () => resolve(request?.result);
-    transaction.onerror = () => reject(transaction.error || request?.error);
-    transaction.onabort = () => reject(transaction.error || new Error('Database transaction aborted.'));
+    transaction.onerror = () => reject(transaction.error || request?.error || new Error('Storage operation failed.'));
+    transaction.onabort = () => reject(transaction.error || new Error('Storage operation aborted.'));
   });
 }
 
@@ -124,977 +55,530 @@ const dbGetAll = (store) => storeRequest(store, 'readonly', (s) => s.getAll());
 const dbClear = (store) => storeRequest(store, 'readwrite', (s) => s.clear());
 
 async function loadModel() {
-  const [entities, events, metaRows] = await Promise.all([
-    dbGetAll('entities'),
-    dbGetAll('events'),
-    dbGetAll('meta'),
-  ]);
-  model = {
-    entities,
-    events,
-    meta: Object.fromEntries(metaRows.map((row) => [row.key, row.value])),
-  };
+  const [recordRows, metaRows] = await Promise.all([dbGetAll('records'), dbGetAll('meta')]);
+  records = recordRows.sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')));
+  meta = Object.fromEntries(metaRows.map((row) => [row.key, row.value]));
 }
 
 async function setMeta(key, value) {
   await dbPut('meta', { key, value: clone(value) });
-  model.meta[key] = clone(value);
+  meta[key] = clone(value);
 }
 
-async function migrateAwaySeededDemo() {
-  if (!model.meta.seeded || model.meta.agentOwnedSchemaVersion) return;
-  await Promise.all([dbClear('entities'), dbClear('events'), dbClear('meta')]);
-  await dbPut('meta', { key: 'schemaVersion', value: SCHEMA_VERSION });
-  await dbPut('meta', { key: 'agentOwnedSchemaVersion', value: 1 });
+function normalizeTags(tags) {
+  if (!Array.isArray(tags)) return [];
+  return [...new Set(tags.map((tag) => String(tag).trim().toLowerCase()).filter(Boolean))].slice(0, 50);
+}
+
+function commonRecord(raw, type, existing = null) {
+  const createdAt = existing?.createdAt || raw.createdAt || nowIso();
+  return {
+    ...(existing || {}),
+    ...clone(raw),
+    id: existing?.id || raw.id || uid(type),
+    type,
+    title: String(raw.title || existing?.title || 'Untitled').trim(),
+    domain: String(raw.domain || existing?.domain || 'general').trim().toLowerCase(),
+    tags: normalizeTags(raw.tags ?? existing?.tags ?? []),
+    createdAt,
+    updatedAt: nowIso(),
+  };
+}
+
+async function saveRecord(record) {
+  await dbPut('records', record);
   await loadModel();
+  render();
+  return clone(record);
 }
 
-function commitBatch({ entityPuts = [], eventPuts = [], metaPuts = [], entityDeletes = [], eventDeletes = [] }) {
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction(['entities', 'events', 'meta'], 'readwrite');
-    const entityStore = transaction.objectStore('entities');
-    const eventStore = transaction.objectStore('events');
-    const metaStore = transaction.objectStore('meta');
-
-    try {
-      entityPuts.forEach((item) => entityStore.put(clone(item)));
-      eventPuts.forEach((item) => eventStore.put(clone(item)));
-      metaPuts.forEach(({ key, value }) => metaStore.put({ key, value: clone(value) }));
-      entityDeletes.forEach((id) => entityStore.delete(id));
-      eventDeletes.forEach((id) => eventStore.delete(id));
-    } catch (error) {
-      transaction.abort();
-      reject(error);
-      return;
-    }
-
-    transaction.oncomplete = resolve;
-    transaction.onerror = () => reject(transaction.error || new Error('Could not commit ledger changes.'));
-    transaction.onabort = () => reject(transaction.error || new Error('Ledger transaction aborted.'));
-  });
+function byId(id) {
+  return records.find((record) => record.id === id) || null;
 }
 
-function makeEvent(category, action, entityId = null, data = {}, date = null, extra = {}) {
-  return {
-    id: uid('event'),
-    category,
-    action,
-    domain: extra.domain || null,
-    entityId: entityId || null,
-    occurredAt: new Date().toISOString(),
-    date: date ? dateKey(date) : dateKey(new Date()),
-    data: clone(data),
-    tags: Array.isArray(extra.tags) ? [...extra.tags] : [],
-    note: extra.note || '',
+function recordsOf(type) {
+  return records.filter((record) => record.type === type);
+}
+
+function sourceRecords(ids = []) {
+  return ids.map(byId).filter((record) => record?.type === 'source');
+}
+
+function truncate(value, length = 190) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  return text.length > length ? `${text.slice(0, length - 1)}…` : text;
+}
+
+function displayDate(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: 'numeric' }).format(date);
+}
+
+function recordText(record) {
+  const safe = { ...record, attachments: (record.attachments || []).map(({ dataUrl, ...rest }) => rest) };
+  return JSON.stringify(safe).toLowerCase();
+}
+
+function matchesSearch(record) {
+  const query = searchQuery.trim().toLowerCase();
+  if (!query) return true;
+  return query.split(/\s+/).every((token) => recordText(record).includes(token));
+}
+
+function sanitizeForAgent(record) {
+  const clean = clone(record);
+  if (Array.isArray(clean.attachments)) {
+    clean.attachments = clean.attachments.map(({ dataUrl, ...attachment }) => ({ ...attachment, storedLocally: Boolean(dataUrl) }));
+  }
+  return clean;
+}
+
+function renderStats() {
+  const counts = {
+    inbox: records.filter((record) => record.type === 'capture' && record.status !== 'processed').length,
+    knowledge: recordsOf('note').length,
+    challenges: recordsOf('challenge').length,
+    sources: recordsOf('source').length,
   };
+  $('stats').innerHTML = [
+    ['Inbox', counts.inbox],
+    ['Notes', counts.knowledge],
+    ['Challenges', counts.challenges],
+    ['Sources', counts.sources],
+  ].map(([label, value]) => `<div class="stat"><strong>${value}</strong><span>${label}</span></div>`).join('');
 }
 
-async function appendEvent(category, action, entityId = null, data = {}, date = null, extra = {}) {
-  const event = makeEvent(category, action, entityId, data, date, extra);
-  await dbPut('events', event);
-  model.events.push(event);
-  return clone(event);
+const viewMeta = {
+  inbox: ['Staging queue', 'Inbox'],
+  knowledge: ['Structured memory', 'Knowledge'],
+  challenges: ['Practice ledger', 'Challenges'],
+  sources: ['Evidence trail', 'Sources'],
+};
+
+function card(record, description = '') {
+  const tags = [record.domain, ...(record.tags || [])].filter(Boolean).slice(0, 5);
+  const badge = record.type === 'capture' && record.status !== 'processed' ? '<span class="badge accent">unprocessed</span>' : '';
+  return `<button class="record-card" type="button" data-open-record="${esc(record.id)}">
+    <div>
+      <span class="eyebrow">${esc(record.type)}</span>
+      <h3>${esc(record.title)}</h3>
+      <p>${esc(truncate(description || record.summary || record.content || record.rawText || record.overview || record.notes || record.url || 'No summary yet.'))}</p>
+      <div class="record-meta">${badge}${tags.map((tag) => `<span class="badge">${esc(tag)}</span>`).join('')}</div>
+    </div>
+    <span class="record-date">${esc(displayDate(record.updatedAt || record.createdAt))}</span>
+  </button>`;
 }
 
-function entity(id) {
-  return model.entities.find((item) => item.id === id) || null;
+function emptyState(message) {
+  return `<div class="empty-state">${esc(message)}</div>`;
 }
 
-function entities(type = null) {
-  return model.entities.filter((item) => !type || item.type === type);
+function renderInbox() {
+  const captures = records.filter((record) => record.type === 'capture' && matchesSearch(record));
+  const pending = captures.filter((record) => record.status !== 'processed');
+  const processed = captures.filter((record) => record.status === 'processed');
+  return `<section class="capture-panel">
+    <p class="eyebrow">Raw capture</p>
+    <h2>Drop material. Structure it later.</h2>
+    <p>Paste notes, narrate a thought, attach screenshots or files, and add the source URL if there is one. The agent can turn these captures into structured records through WebMCP.</p>
+    <form id="captureForm">
+      <div class="capture-grid">
+        <textarea id="captureText" name="text" placeholder="Narration, rough notes, CTF observations, copied documentation…" required></textarea>
+        <div class="capture-side">
+          <input id="captureTitle" name="title" placeholder="Optional title" />
+          <input id="captureUrl" name="url" type="url" placeholder="Source URL" />
+          <input id="captureDomain" name="domain" placeholder="Domain e.g. web, AD, reversing" />
+          <input id="captureTags" name="tags" placeholder="Tags, comma separated" />
+          <label class="file-field">Attachments <input id="captureFiles" type="file" multiple /></label>
+        </div>
+      </div>
+      <div class="capture-actions">
+        <button class="primary-button" type="submit">Stage capture</button>
+        <button id="narrateButton" class="secondary-button" type="button">Narrate</button>
+        <span id="captureHelper" class="helper">Files up to 2 MB each are stored locally in this browser.</span>
+      </div>
+    </form>
+  </section>
+  <div class="section-head"><h2>Pending</h2><span>${pending.length}</span></div>
+  <div class="list">${pending.length ? pending.map((record) => card(record)).join('') : emptyState('Nothing waiting for the agent.')}</div>
+  ${processed.length ? `<div class="section-head"><h2>Processed</h2><span>${processed.length}</span></div><div class="list">${processed.map((record) => card(record)).join('')}</div>` : ''}`;
 }
 
-function children(parentId, type = null) {
-  return model.entities
-    .filter((item) => item.parentId === parentId && (!type || item.type === type))
-    .sort((a, b) => String(a.startDate || a.date || '').localeCompare(String(b.startDate || b.date || '')));
+function renderKnowledge() {
+  const notes = records.filter((record) => record.type === 'note' && matchesSearch(record));
+  return `<div class="list">${notes.length ? notes.map((record) => card(record, record.summary || record.abstraction || record.content)).join('') : emptyState('No structured notes yet. Ask the agent to process your inbox.')}</div>`;
 }
 
-function eventList({ category = null, domain = null, entityId = null, action = null, startDate = null, endDate = null } = {}) {
-  return model.events
-    .filter((item) => (!category || item.category === category)
-      && (!domain || item.domain === domain || item.action === domain)
-      && (!entityId || item.entityId === entityId)
-      && (!action || item.action === action)
-      && (!startDate || item.date >= startDate)
-      && (!endDate || item.date <= endDate))
-    .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+function renderChallenges() {
+  const challenges = records.filter((record) => record.type === 'challenge' && matchesSearch(record));
+  const solves = records.filter((record) => record.type === 'solve' && matchesSearch(record));
+  return `<div class="section-head"><h2>Challenges</h2><span>${challenges.length}</span></div>
+    <div class="list">${challenges.length ? challenges.map((record) => card(record, [record.platform, record.category, record.objective].filter(Boolean).join(' · '))).join('') : emptyState('No challenge records yet.')}</div>
+    <div class="section-head"><h2>Recorded solves</h2><span>${solves.length}</span></div>
+    <div class="list">${solves.length ? solves.map((record) => card(record, record.overview || (record.lessons || []).join(' '))).join('') : emptyState('No solve records yet.')}</div>`;
 }
 
-function latestEvent(query) {
-  return eventList(query)[0] || null;
-}
-
-function normalizeRange(raw, label) {
-  const startDate = pick(raw, 'startDate', 'start_date');
-  const endDate = pick(raw, 'endDate', 'end_date');
-  if (!startDate || !endDate) throw new Error(`${label} requires startDate and endDate.`);
-  parseDate(startDate, `${label}.startDate`);
-  parseDate(endDate, `${label}.endDate`);
-  if (endDate < startDate) throw new Error(`${label}.endDate cannot be before startDate.`);
-  return { startDate, endDate };
-}
-
-function normalizeActivity(raw, index) {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error(`Activity ${index + 1} must be an object.`);
-  const name = String(raw.name || raw.title || raw.type || '').trim();
-  if (!name) throw new Error(`Activity ${index + 1} requires name, title, or type.`);
-  return clone(raw);
-}
-
-function normalizePrescription(raw, parentId) {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Prescription must be an object.');
-  const domain = String(raw.domain || '').trim().toLowerCase();
-  if (!domain) throw new Error('Prescription requires a domain.');
-  const now = new Date().toISOString();
-  return {
-    id: raw.id || uid('prescription'),
-    type: 'prescription',
-    parentId: raw.parentId || raw.parent_id || parentId || null,
-    domain,
-    label: raw.label || domain,
-    target: raw.target ?? raw.value ?? null,
-    unit: raw.unit || '',
-    startDate: pick(raw, 'startDate', 'start_date') || null,
-    endDate: pick(raw, 'endDate', 'end_date') || null,
-    metadata: clone(raw.metadata || {}),
-    status: raw.status || 'active',
-    createdAt: now,
-    updatedAt: now,
-  };
-}
-
-function normalizeKpi(raw, parentId) {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('KPI must be an object.');
-  const name = String(raw.name || raw.label || '').trim();
-  if (!name) throw new Error('KPI requires a name.');
-  const now = new Date().toISOString();
-  return {
-    id: raw.id || uid('kpi'),
-    type: 'kpi',
-    parentId: raw.parentId || raw.parent_id || parentId || null,
-    name,
-    unit: raw.unit || '',
-    targetValue: raw.targetValue ?? raw.target_value ?? raw.target ?? null,
-    direction: raw.direction || (raw.lowerBetter || raw.lower_better ? 'lower' : 'higher'),
-    metadata: clone(raw.metadata || {}),
-    status: raw.status || 'active',
-    createdAt: now,
-    updatedAt: now,
-  };
-}
-
-function normalizeProgram(raw) {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('program must be an object.');
-  const now = new Date().toISOString();
-  const result = [];
-  const programId = raw.id || uid('program');
-  const blocksRaw = Array.isArray(raw.blocks) ? raw.blocks : [];
-  const programRange = raw.startDate || raw.start_date
-    ? normalizeRange(raw, 'program')
-    : blocksRaw.length
-      ? {
-          startDate: blocksRaw.map((item) => pick(item, 'startDate', 'start_date')).filter(Boolean).sort()[0],
-          endDate: blocksRaw.map((item) => pick(item, 'endDate', 'end_date')).filter(Boolean).sort().at(-1),
-        }
-      : { startDate: null, endDate: null };
-
-  result.push({
-    id: programId,
-    type: 'program',
-    parentId: null,
-    title: raw.title || 'Untitled program',
-    objective: raw.objective || raw.goal || '',
-    startDate: programRange.startDate,
-    endDate: programRange.endDate,
-    status: raw.status || 'active',
-    metadata: clone(raw.metadata || {}),
-    createdAt: now,
-    updatedAt: now,
-  });
-
-  const addNestedPrescriptions = (items, parentId) => {
-    (Array.isArray(items) ? items : []).forEach((item) => result.push(normalizePrescription(item, parentId)));
-  };
-  const addNestedKpis = (items, parentId) => {
-    (Array.isArray(items) ? items : []).forEach((item) => result.push(normalizeKpi(item, parentId)));
-  };
-
-  addNestedPrescriptions(raw.prescriptions, programId);
-  addNestedKpis(raw.kpis, programId);
-
-  blocksRaw.forEach((blockRaw, blockIndex) => {
-    const range = normalizeRange(blockRaw, `block ${blockIndex + 1}`);
-    const blockId = blockRaw.id || uid('block');
-    result.push({
-      id: blockId,
-      type: 'block',
-      parentId: programId,
-      title: blockRaw.title || `Block ${blockIndex + 1}`,
-      objective: blockRaw.objective || blockRaw.outcome || blockRaw.goal || '',
-      outcome: blockRaw.outcome || blockRaw.objective || '',
-      startDate: range.startDate,
-      endDate: range.endDate,
-      order: blockRaw.order ?? blockIndex + 1,
-      metadata: clone(blockRaw.metadata || {}),
-      status: blockRaw.status || 'active',
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    addNestedPrescriptions(blockRaw.prescriptions, blockId);
-    addNestedKpis(blockRaw.kpis, blockId);
-
-    const mesos = Array.isArray(blockRaw.mesocycles) ? blockRaw.mesocycles : [];
-    mesos.forEach((mesoRaw, mesoIndex) => {
-      const mesoRange = normalizeRange(mesoRaw, `mesocycle ${mesoIndex + 1}`);
-      const mesoId = mesoRaw.id || uid('meso');
-      result.push({
-        id: mesoId,
-        type: 'mesocycle',
-        parentId: blockId,
-        title: mesoRaw.title || `Mesocycle ${mesoIndex + 1}`,
-        objective: mesoRaw.objective || mesoRaw.focus || '',
-        focus: mesoRaw.focus || mesoRaw.objective || '',
-        startDate: mesoRange.startDate,
-        endDate: mesoRange.endDate,
-        order: mesoRaw.order ?? mesoIndex + 1,
-        metadata: clone(mesoRaw.metadata || {}),
-        status: mesoRaw.status || 'active',
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      const micros = Array.isArray(mesoRaw.microcycles) ? mesoRaw.microcycles : [];
-      micros.forEach((microRaw, microIndex) => {
-        const microRange = normalizeRange(microRaw, `microcycle ${microIndex + 1}`);
-        const microId = microRaw.id || uid('micro');
-        result.push({
-          id: microId,
-          type: 'microcycle',
-          parentId: mesoId,
-          title: microRaw.title || `Microcycle ${microIndex + 1}`,
-          objective: microRaw.objective || '',
-          kind: String(microRaw.kind || microRaw.type_label || 'training').toLowerCase(),
-          startDate: microRange.startDate,
-          endDate: microRange.endDate,
-          order: microRaw.order ?? microIndex + 1,
-          metadata: clone(microRaw.metadata || {}),
-          status: microRaw.status || 'active',
-          createdAt: now,
-          updatedAt: now,
-        });
-
-        const sessions = Array.isArray(microRaw.sessions) ? microRaw.sessions : [];
-        sessions.forEach((sessionRaw, sessionIndex) => {
-          const date = pick(sessionRaw, 'date', 'startDate', 'start_date');
-          if (!date) throw new Error(`Session ${sessionIndex + 1} requires a date.`);
-          parseDate(date, `session ${sessionIndex + 1}.date`);
-          const sessionId = sessionRaw.id || uid('session');
-          const activities = Array.isArray(sessionRaw.activities)
-            ? sessionRaw.activities.map(normalizeActivity)
-            : Array.isArray(sessionRaw.prescriptions)
-              ? sessionRaw.prescriptions.map((item, index) => normalizeActivity({ name: item.exercise || item.name || `Activity ${index + 1}`, ...item }, index))
-              : [];
-          result.push({
-            id: sessionId,
-            type: 'session',
-            parentId: microId,
-            date,
-            startDate: date,
-            title: sessionRaw.title || `Session ${sessionIndex + 1}`,
-            objective: sessionRaw.objective || '',
-            durationMinutes: Number(sessionRaw.durationMinutes ?? sessionRaw.duration_minutes ?? 0) || 0,
-            activities,
-            metadata: clone(sessionRaw.metadata || {}),
-            status: sessionRaw.status || 'planned',
-            createdAt: now,
-            updatedAt: now,
-          });
-        });
-      });
-    });
-  });
-
-  validateEntities(result);
-  return { programId, entities: result };
-}
-
-function validateEntities(records) {
-  const map = new Map(records.map((item) => [item.id, item]));
-  if (map.size !== records.length) throw new Error('Entity ids must be unique.');
-
-  const insideParent = (item, parent, label) => {
-    if (item.startDate && parent.startDate && item.startDate < parent.startDate) {
-      throw new Error(`${label} starts before its parent.`);
-    }
-    if (item.endDate && parent.endDate && item.endDate > parent.endDate) {
-      throw new Error(`${label} ends after its parent.`);
-    }
-  };
-
-  for (const item of records) {
-    if (!item.id || !item.type) throw new Error('Every entity requires id and type.');
-    if (item.startDate) parseDate(item.startDate, `${item.type}.startDate`);
-    if (item.endDate) parseDate(item.endDate, `${item.type}.endDate`);
-
-    if (item.type === 'block') {
-      const parent = map.get(item.parentId);
-      if (!parent || parent.type !== 'program') throw new Error('Every block must belong to a program.');
-      insideParent(item, parent, 'Block');
-      const maxEnd = dateKey(addDays(addMonths(item.startDate, 6), -1));
-      if (item.endDate > maxEnd) throw new Error('Training blocks cannot exceed six calendar months.');
-    }
-
-    if (item.type === 'mesocycle') {
-      const parent = map.get(item.parentId);
-      if (!parent || parent.type !== 'block') throw new Error('Every mesocycle must belong to a block.');
-      insideParent(item, parent, 'Mesocycle');
-      if (inclusiveDays(item.startDate, item.endDate) > 28) throw new Error('Mesocycles cannot exceed four weeks.');
-    }
-
-    if (item.type === 'microcycle') {
-      const parent = map.get(item.parentId);
-      if (!parent || parent.type !== 'mesocycle') throw new Error('Every microcycle must belong to a mesocycle.');
-      insideParent(item, parent, 'Microcycle');
-      if (inclusiveDays(item.startDate, item.endDate) > 7) throw new Error('Microcycles cannot exceed one week.');
-    }
-
-    if (item.type === 'session') {
-      const parent = map.get(item.parentId);
-      if (!parent || parent.type !== 'microcycle') throw new Error('Every session must belong to a microcycle.');
-      if (item.date < parent.startDate || item.date > parent.endDate) throw new Error('Session date must fall inside its microcycle.');
-      if (!Array.isArray(item.activities)) throw new Error('Session activities must be an array.');
-    }
-
-    if (item.type === 'prescription' && item.parentId && !map.has(item.parentId) && !entity(item.parentId)) {
-      throw new Error(`Prescription parent not found: ${item.parentId}`);
-    }
-
-    if (item.type === 'kpi' && item.parentId && !map.has(item.parentId) && !entity(item.parentId)) {
-      throw new Error(`KPI parent not found: ${item.parentId}`);
-    }
-  }
-}
-
-function currentContext() {
-  const today = dateKey(new Date());
-  const programs = entities('program').filter((item) => item.status !== 'deleted');
-  const program = entity(model.meta.activeProgramId)
-    || programs.find((item) => (!item.startDate || item.startDate <= today) && (!item.endDate || item.endDate >= today))
-    || programs.find((item) => item.status === 'active')
-    || programs[0]
-    || null;
-
-  if (!program) return { program: null, block: null, mesocycle: null, microcycle: null };
-
-  const blocks = children(program.id, 'block').filter((item) => item.status !== 'archived');
-  const block = entity(model.meta.activeBlockId)
-    || blocks.find((item) => item.startDate <= today && item.endDate >= today)
-    || blocks[0]
-    || null;
-  if (!block) return { program, block: null, mesocycle: null, microcycle: null };
-
-  const mesos = children(block.id, 'mesocycle').filter((item) => item.status !== 'archived');
-  const mesocycle = mesos.find((item) => item.startDate <= today && item.endDate >= today) || mesos[0] || null;
-  const micros = mesocycle ? children(mesocycle.id, 'microcycle').filter((item) => item.status !== 'archived') : [];
-  const microcycle = micros.find((item) => item.startDate <= today && item.endDate >= today) || micros[0] || null;
-  return { program, block, mesocycle, microcycle };
-}
-
-function descendants(rootId) {
-  const found = [];
-  const queue = [rootId];
-  while (queue.length) {
-    const parentId = queue.shift();
-    const next = model.entities.filter((item) => item.parentId === parentId);
-    found.push(...next);
-    queue.push(...next.map((item) => item.id));
-  }
-  return found;
-}
-
-function buildProgramProjection(programId) {
-  const program = entity(programId);
-  if (!program || program.type !== 'program') return null;
-  return {
-    ...clone(program),
-    prescriptions: children(program.id, 'prescription'),
-    kpis: children(program.id, 'kpi'),
-    blocks: children(program.id, 'block').map((block) => ({
-      ...clone(block),
-      prescriptions: children(block.id, 'prescription'),
-      kpis: children(block.id, 'kpi'),
-      mesocycles: children(block.id, 'mesocycle').map((meso) => ({
-        ...clone(meso),
-        microcycles: children(meso.id, 'microcycle').map((micro) => ({
-          ...clone(micro),
-          sessions: children(micro.id, 'session').map(clone),
-        })),
-      })),
-    })),
-  };
-}
-
-function relevantPrescriptions(domain, context = currentContext()) {
-  const parentIds = [context.microcycle?.id, context.mesocycle?.id, context.block?.id, context.program?.id].filter(Boolean);
-  const today = dateKey(new Date());
-  return entities('prescription')
-    .filter((item) => item.status !== 'archived'
-      && item.domain === domain
-      && (!item.parentId || parentIds.includes(item.parentId))
-      && (!item.startDate || item.startDate <= today)
-      && (!item.endDate || item.endDate >= today))
-    .sort((a, b) => parentIds.indexOf(a.parentId) - parentIds.indexOf(b.parentId));
-}
-
-function kpisForContext(context = currentContext()) {
-  const parentIds = [context.block?.id, context.program?.id].filter(Boolean);
-  return entities('kpi').filter((item) => item.status !== 'archived' && (!item.parentId || parentIds.includes(item.parentId)));
-}
-
-function sessionResult(sessionId) {
-  return latestEvent({ category: 'observation', domain: 'training', entityId: sessionId });
-}
-
-function statusForSession(session) {
-  const result = sessionResult(session.id);
-  if (!result) return { mark: '·', label: 'PLANNED', cls: 'status-planned', duration: session.durationMinutes || 0 };
-  const status = String(result.data.status || '').toLowerCase();
-  const completed = result.data.completed === true || status === 'completed' || status === 'done';
-  const missed = result.data.completed === false || status === 'missed' || status === 'skipped';
-  if (missed) return { mark: '✕', label: 'MISSED', cls: 'status-missed', duration: Number(result.data.actualMinutes ?? result.data.durationMinutes ?? 0) || 0 };
-  if (completed) return { mark: '✓', label: 'DONE', cls: 'status-complete', duration: Number(result.data.actualMinutes ?? result.data.durationMinutes ?? session.durationMinutes ?? 0) || 0 };
-  return { mark: '·', label: 'LOGGED', cls: 'status-planned', duration: Number(result.data.actualMinutes ?? session.durationMinutes ?? 0) || 0 };
-}
-
-function microStats(microId) {
-  const sessions = children(microId, 'session');
-  const results = sessions.map((item) => sessionResult(item.id)).filter(Boolean);
-  const completed = sessions.filter((session) => statusForSession(session).label === 'DONE').length;
-  const plannedMinutes = sessions.reduce((sum, item) => sum + Number(item.durationMinutes || 0), 0);
-  const actualMinutes = results.reduce((sum, item) => sum + Number(item.data.actualMinutes ?? item.data.durationMinutes ?? 0), 0);
-  return {
-    sessions: sessions.length,
-    completed,
-    adherence: sessions.length ? completed / sessions.length : 0,
-    plannedMinutes,
-    actualMinutes,
-  };
-}
-
-function mesoStats(mesoId) {
-  const micros = children(mesoId, 'microcycle');
-  const stats = micros.map((item) => microStats(item.id));
-  const sessions = stats.reduce((sum, item) => sum + item.sessions, 0);
-  const completed = stats.reduce((sum, item) => sum + item.completed, 0);
-  return { weeks: micros.length, sessions, completed, adherence: sessions ? completed / sessions : 0 };
-}
-
-function blockMicros(blockId) {
-  return children(blockId, 'mesocycle').flatMap((meso) => children(meso.id, 'microcycle'));
-}
-
-function inspectionContext() {
-  const today = dateKey(new Date());
-  const active = currentContext();
-  const pickLevel = (type, parent) => {
-    const rows = (type === 'program' ? entities(type) : parent ? children(parent.id, type) : []).filter(item => item.status !== 'deleted');
-    return rows.find(item => item.id === inspected[type])
-      || rows.find(item => item.id === active[type]?.id)
-      || rows.find(item => item.startDate <= today && item.endDate >= today)
-      || rows[0] || null;
-  };
-  const program = pickLevel('program');
-  const block = pickLevel('block', program);
-  const mesocycle = pickLevel('mesocycle', block);
-  const microcycle = pickLevel('microcycle', mesocycle);
-  const session = microcycle ? children(microcycle.id, 'session').find(item => item.id === inspected.session) || null : null;
-  return { program, block, mesocycle, microcycle, session };
-}
-
-function inspectEntity(id) {
-  const item = entity(id);
-  if (!item || !['program', 'block', 'mesocycle', 'microcycle', 'session'].includes(item.type)) return;
-  inspected = {};
-  let cursor = item;
-  const seen = new Set();
-  while (cursor && !seen.has(cursor.id)) {
-    seen.add(cursor.id);
-    inspected[cursor.type] = cursor.id;
-    cursor = entity(cursor.parentId);
-  }
-  activeView = item.type === 'session' ? 'microcycle' : item.type;
-}
-
-function renderContext() {
-  const context = inspectionContext();
-  const levels = ['program', 'block', 'mesocycle', 'microcycle', 'session'];
-  const labels = ['Program', 'Block', 'Mesocycle', 'Microcycle', 'Session'];
-  $('hierarchy').innerHTML = levels.map((type, index) => {
-    const parent = index ? context[levels[index - 1]] : null;
-    const rows = (index ? parent ? children(parent.id, type) : [] : entities('program')).filter(item => item.status !== 'deleted');
-    const selected = context[type];
-    return `<label>${labels[index]}<select data-level="${type}" ${rows.length ? '' : 'disabled'}>${type === 'session' ? '<option value="">All sessions</option>' : !rows.length ? '<option value="">—</option>' : ''}${rows.map(item => `<option value="${esc(item.id)}" ${item.id === selected?.id ? 'selected' : ''}>${esc(item.title)}${item.kind === 'deload' ? ' · Deload' : ''}</option>`).join('')}</select></label>`;
-  }).join('');
-}
-
-function hierarchyRows(parent, type) {
-  const rows = parent ? children(parent.id, type) : [];
-  if (!parent) return '<div class="empty">No program selected.</div>';
-  const label = { block: 'Block', mesocycle: 'Mesocycle', microcycle: 'Microcycle' }[type];
-  let html = `<div class="view-head"><div><h2>${esc(parent.title)}</h2></div><small>${esc(formatRange(parent.startDate, parent.endDate))}</small></div>`;
-  if (parent.objective || parent.focus || parent.outcome) html += `<p class="objective">${esc(parent.objective || parent.focus || parent.outcome)}</p>`;
-  if (!rows.length) return html + `<div class="empty">No ${label.toLowerCase()}s recorded.</div>`;
-  html += `<table class="scale-table"><thead><tr><th>${label}</th><th>Dates</th><th>Focus</th><th>Sessions</th><th>Status</th></tr></thead><tbody>`;
-  for (const item of rows) {
-    const sessions = descendants(item.id).filter(child => child.type === 'session');
-    const completed = sessions.filter(session => statusForSession(session).label === 'DONE').length;
-    html += `<tr><td><button type="button" class="entity-link" data-inspect="${esc(item.id)}">${esc(item.title)}</button></td><td>${esc(formatRange(item.startDate, item.endDate))}</td><td>${esc(item.objective || item.focus || item.outcome || '—')}</td><td>${completed}/${sessions.length}</td><td>${esc(item.kind === 'deload' ? 'Deload' : item.status || item.kind || 'Planned')}</td></tr>`;
-  }
-  return html + '</tbody></table>';
-}
-
-function displayValue(value) {
-  if (value === null || value === undefined || value === '') return '—';
-  if (Array.isArray(value)) return value.map(displayValue).join(', ');
-  if (typeof value === 'object') return Object.entries(value).map(([key, val]) => `${key}: ${displayValue(val)}`).join(' · ');
-  return String(value);
-}
-
-function activityDetails(activity) {
-  const explicit = activity.prescription && typeof activity.prescription === 'object' ? activity.prescription : null;
-  const omit = new Set(['name', 'title', 'type', 'prescription', 'metadata', 'note']);
-  const source = explicit || Object.fromEntries(Object.entries(activity).filter(([key]) => !omit.has(key)));
-  return Object.entries(source)
-    .filter(([, value]) => value !== null && value !== undefined && value !== '')
-    .map(([key, value]) => `${key.replace(/_/g, ' ')} ${displayValue(value)}`)
-    .join(' · ');
-}
-
-function renderMicrocycle(micro) {
-  if (!micro) return '<div class="empty">No microcycle recorded.</div>';
-  const context = inspectionContext();
-  const stats = microStats(micro.id);
-  const sessions = children(micro.id, 'session');
-  let html = `<div class="view-head"><div><h2>${esc(micro.title)}${micro.kind === 'deload' ? ' · Deload' : ''}</h2></div><small>${esc(formatRange(micro.startDate, micro.endDate))} · ${stats.completed}/${stats.sessions} sessions</small></div>`;
-  if (micro.objective || micro.focus) html += `<p class="objective">${esc(micro.objective || micro.focus)}</p>`;
-  if (!sessions.length) return html + '<div class="empty">No sessions recorded.</div>';
-  for (const session of sessions) {
-    if (context.session && context.session.id !== session.id) continue;
-    const status = statusForSession(session);
-    const result = sessionResult(session.id);
-    html += `<details class="session-detail" ${context.session?.id === session.id ? 'open' : ''}><summary><span class="session-date">${esc(formatDate(session.date, { weekday: 'short', month: 'short', day: 'numeric' }))}</span><strong>${esc(session.title)}</strong><span class="session-duration">${session.durationMinutes ? esc(session.durationMinutes) + ' min' : ''}</span><span class="${status.cls}">${esc(status.label)}</span></summary><div class="session-content"><table><thead><tr><th>Activity</th><th>Prescription</th><th>Notes</th></tr></thead><tbody>`;
-    for (const activity of session.activities || []) html += `<tr><td>${esc(activity.name || activity.title || activity.type || 'Activity')}</td><td>${esc(activityDetails(activity) || '—')}</td><td>${esc(activity.note || '—')}</td></tr>`;
-    html += '</tbody></table>';
-    if (result) html += `<p class="session-observation">${esc(status.label)}${status.duration ? ' · ' + esc(status.duration) + ' min' : ''}${result.note ? ' · ' + esc(result.note) : ''}</p>`;
-    html += '</div></details>';
-  }
-  return html;
-}
-
-function renderMesocycle(meso) { return hierarchyRows(meso, 'microcycle'); }
-
-function renderDeload(block) {
-  if (!block) return '<div class="empty">No training block planned yet.</div>';
-  const deloads = blockMicros(block.id).filter((item) => String(item.kind).toLowerCase() === 'deload');
-  let html = `<div class="view-head"><div><span>DELOADS</span><h2>${esc(block.title)}</h2></div><small>${deloads.length} recorded</small></div>`;
-  if (!deloads.length) return html + '<div class="empty">No deload scheduled in this block.</div>';
-  html += '<table class="scale-table"><thead><tr><th>DELOAD</th><th>DATES</th><th>SESSIONS</th><th>PLANNED TIME</th><th>CONTENTS</th></tr></thead><tbody>';
-  for (const micro of deloads) {
-    const sessions = children(micro.id, 'session');
-    const stats = microStats(micro.id);
-    html += `<tr><td><button type="button" class="entity-link" data-inspect="${esc(micro.id)}">${esc(micro.title)}</button></td><td>${esc(formatRange(micro.startDate, micro.endDate))}</td><td>${stats.sessions}</td><td>${stats.plannedMinutes} min</td><td>${esc(sessions.map((item) => item.title).join(' / ') || '—')}</td></tr>`;
-  }
-  html += '</tbody></table>';
-  return html;
-}
-
-function renderBlock(block) { return hierarchyRows(block, 'mesocycle'); }
-
-function eventSummary(event) {
-  if (event.category === 'observation') return `${event.domain || event.action}: ${displayValue(event.data)}`;
-  if (event.category === 'measurement') return `${displayValue(event.data.value)} ${event.data.unit || ''}`;
-  if (event.category === 'program') return event.data?.summary || event.action;
-  if (event.category === 'system') return event.action;
-  return displayValue(event.data);
-}
-
-function renderLedger() {
-  const list = [...model.events].sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
-  let html = `<div class="view-head"><div><span>HISTORICAL RECORD</span><h2>History</h2></div><small>${list.length} records</small></div>`;
-  if (!list.length) return html + '<div class="empty">No history yet. Your completed sessions, measurements, and plan changes will appear here.</div>';
-  html += '<table class="ledger-table"><thead><tr><th>TIME</th><th>DOMAIN</th><th>ACTION</th><th>DATA</th><th></th></tr></thead><tbody>';
-  for (const event of list.slice(0, 300)) {
-    const domain = event.domain || event.category;
-    html += `<tr><td>${esc(new Date(event.occurredAt).toLocaleString())}</td><td>${esc(String(domain).toUpperCase())}</td><td>${esc(event.action)}</td><td>${esc(eventSummary(event))}</td><td><button class="ledger-delete" data-delete-event="${esc(event.id)}" aria-label="Delete history record">Delete</button></td></tr>`;
-  }
-  html += '</tbody></table>';
-  return html;
-}
-
-function datesForCurrentWeek(micro) {
-  if (micro) {
-    const start = parseDate(micro.startDate);
-    return Array.from({ length: Math.min(7, inclusiveDays(micro.startDate, micro.endDate)) }, (_, index) => dateKey(addDays(start, index)));
-  }
-  const start = mondayOf(new Date());
-  return Array.from({ length: 7 }, (_, index) => dateKey(addDays(start, index)));
-}
-
-function latestDailyObservation(domain, date) {
-  return eventList({ category: 'observation', domain }).find((item) => item.date === date) || null;
-}
-
-function targetNumber(prescription) {
-  const value = prescription?.target;
-  if (typeof value === 'number') return value;
-  if (value && typeof value === 'object') {
-    const candidate = value.grams ?? value.hours ?? value.value ?? value.target;
-    return Number.isFinite(Number(candidate)) ? Number(candidate) : null;
-  }
-  return Number.isFinite(Number(value)) ? Number(value) : null;
-}
-
-function renderProtein(micro) {
-  const prescription = relevantPrescriptions('protein')[0] || null;
-  const target = targetNumber(prescription);
-  const unit = prescription?.unit || 'g';
-  let html = `<div class="view-head"><div><span>AGENT-AUTHORED PRESCRIPTION</span><h2>Protein</h2></div><small>${prescription ? esc(`${displayValue(prescription.target)} ${unit}`) : 'No prescription'}</small></div>`;
-  if (!prescription && !eventList({ category: 'observation', domain: 'protein' }).length) {
-    return html + '<div class="empty">No protein target yet. Ask your agent to add a target and record your intake.</div>';
-  }
-  html += '<table class="domain-table"><thead><tr><th>DAY</th><th>DATE</th><th>TARGET</th><th>LOGGED</th><th>STATUS</th></tr></thead><tbody>';
-  for (const date of datesForCurrentWeek(micro)) {
-    const event = latestDailyObservation('protein', date);
-    const logged = Number(event?.data.grams ?? event?.data.value);
-    const hasLogged = Number.isFinite(logged);
-    const status = target == null || !hasLogged ? '—' : logged >= target * 0.9 ? '✓' : '✕';
-    html += `<tr><td>${esc(new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(parseDate(date)).toUpperCase())}</td><td>${esc(formatDate(date))}</td><td>${prescription ? esc(`${displayValue(prescription.target)} ${unit}`) : '—'}</td><td>${hasLogged ? `${logged} ${esc(event?.data.unit || unit)}` : '—'}</td><td class="${status === '✓' ? 'status-complete' : status === '✕' ? 'status-missed' : ''}">${status}</td></tr>`;
-  }
-  html += '</tbody></table>';
-  return html;
-}
-
-function renderSleep(micro) {
-  const prescription = relevantPrescriptions('sleep')[0] || null;
-  const target = targetNumber(prescription);
-  const unit = prescription?.unit || 'h';
-  let html = `<div class="view-head"><div><span>RECOVERY LEDGER</span><h2>Sleep</h2></div><small>${prescription ? esc(`${displayValue(prescription.target)} ${unit}`) : 'No prescription'}</small></div>`;
-  if (!prescription && !eventList({ category: 'observation', domain: 'sleep' }).length) {
-    return html + '<div class="empty">No sleep recorded yet. Ask your agent to add a sleep target and log your nights.</div>';
-  }
-  html += '<table class="domain-table"><thead><tr><th>DAY</th><th>DATE</th><th>TARGET</th><th>SLEEP</th><th>READINESS</th><th>NOTES</th></tr></thead><tbody>';
-  for (const date of datesForCurrentWeek(micro)) {
-    const event = latestDailyObservation('sleep', date);
-    const hours = event?.data.hours ?? event?.data.value ?? '—';
-    html += `<tr><td>${esc(new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(parseDate(date)).toUpperCase())}</td><td>${esc(formatDate(date))}</td><td>${prescription ? esc(`${displayValue(prescription.target)} ${unit}`) : '—'}</td><td>${esc(hours)}</td><td>${esc(event?.data.readiness ?? '—')}</td><td>${esc(event?.note || event?.data.notes || '')}</td></tr>`;
-  }
-  html += '</tbody></table>';
-  return html;
-}
-
-function renderKpis(block) {
-  const context = currentContext();
-  const kpis = kpisForContext(context);
-  let html = `<div class="view-head"><div><span>AGENT-DEFINED PERFORMANCE OUTCOMES</span><h2>Progress</h2></div><small>${kpis.length} tracked</small></div>`;
-  if (!kpis.length) return html + '<div class="empty">Your progress starts with a baseline. Ask your agent to add the measurements you want to track.</div>';
-  html += '<table class="domain-table"><thead><tr><th>MEASUREMENT</th><th>START</th><th>CURRENT</th><th>CHANGE</th><th>TARGET</th><th>LAST TEST</th></tr></thead><tbody>';
-  for (const kpi of kpis) {
-    const measurements = eventList({ category: 'measurement', entityId: kpi.id }).sort((a, b) => a.occurredAt.localeCompare(b.occurredAt));
-    const first = measurements[0];
-    const last = measurements.at(-1);
-    const start = Number(first?.data.value);
-    const current = Number(last?.data.value);
-    const change = Number.isFinite(start) && Number.isFinite(current) ? current - start : null;
-    const sign = change > 0 ? '+' : '';
-    html += `<tr><td><strong>${esc(kpi.name)}</strong><span>${esc(kpi.unit)}</span></td><td>${first ? `${start} ${esc(kpi.unit)}` : '—'}</td><td>${last ? `${current} ${esc(kpi.unit)}` : '—'}</td><td>${change == null ? '—' : `${sign}${Math.round(change * 100) / 100} ${esc(kpi.unit)}`}</td><td>${esc(kpi.targetValue ?? '—')} ${esc(kpi.unit)}</td><td>${last ? esc(formatDate(last.date)) : '—'}</td></tr>`;
-  }
-  html += '</tbody></table>';
-  return html;
+function renderSources() {
+  const sources = records.filter((record) => record.type === 'source' && matchesSearch(record));
+  return `<div class="list">${sources.length ? sources.map((record) => card(record, [record.author, record.publisher, record.url, record.notes].filter(Boolean).join(' · '))).join('') : emptyState('No sources yet. Structured notes should keep their evidence trail here.')}</div>`;
 }
 
 function render() {
-  const context = inspectionContext();
-  renderContext();
-  document.querySelectorAll('.tabs button').forEach((button) => {
-    const active = button.dataset.tab === activeTab;
-    button.classList.toggle('active', active);
-    if (active) button.setAttribute('aria-current', 'page');
-    else button.removeAttribute('aria-current');
-  });
-  document.querySelectorAll('.tab-view').forEach((section) => section.classList.toggle('active', section.id === `${activeTab}Tab`));
-  document.querySelectorAll('.subtabs button').forEach((button) => {
+  const [eyebrow, title] = viewMeta[activeView];
+  $('viewEyebrow').textContent = eyebrow;
+  $('viewTitle').textContent = title;
+  document.querySelectorAll('.tab').forEach((button) => {
     const active = button.dataset.view === activeView;
     button.classList.toggle('active', active);
-    button.setAttribute('aria-pressed', String(active));
+    button.toggleAttribute('aria-current', active);
   });
-  const tableView = (html) => html.replace(/<table /g, '<div class="table-scroll" role="region" aria-label="Scrollable data table" tabindex="0"><table ').replace(/<\/table>/g, '</table></div>');
-  if (activeView === 'program') $('trainingView').innerHTML = tableView(hierarchyRows(context.program, 'block'));
-  else if (activeView === 'microcycle') $('trainingView').innerHTML = renderMicrocycle(context.microcycle);
-  else if (activeView === 'mesocycle') $('trainingView').innerHTML = tableView(renderMesocycle(context.mesocycle));
-  else if (activeView === 'deload') $('trainingView').innerHTML = tableView(renderDeload(context.block));
-  else if (activeView === 'block') $('trainingView').innerHTML = renderBlock(context.block);
-  else $('trainingView').innerHTML = tableView(renderLedger());
-  $('proteinView').innerHTML = tableView(renderProtein(context.microcycle));
-  $('sleepView').innerHTML = tableView(renderSleep(context.microcycle));
-  $('kpiView').innerHTML = tableView(renderKpis(context.block));
-  $('historyView').innerHTML = tableView(renderLedger());
-  $('storageStatus').textContent = 'Saved in this browser';
+  renderStats();
+  const renderers = { inbox: renderInbox, knowledge: renderKnowledge, challenges: renderChallenges, sources: renderSources };
+  $('content').innerHTML = renderers[activeView]();
+  if (activeView === 'inbox') bindCaptureForm();
 }
 
-
-async function refresh() {
-  await loadModel();
-  render();
+function listSection(title, items, ordered = false, code = false) {
+  if (!Array.isArray(items) || !items.length) return '';
+  const tag = ordered ? 'ol' : 'ul';
+  const body = code
+    ? items.map((item) => `<pre>${esc(typeof item === 'string' ? item : JSON.stringify(item, null, 2))}</pre>`).join('')
+    : `<${tag}>${items.map((item) => `<li>${esc(typeof item === 'string' ? item : JSON.stringify(item))}</li>`).join('')}</${tag}>`;
+  return `<section class="record-section"><h3>${esc(title)}</h3>${body}</section>`;
 }
 
-async function applyProgram({ program, activate = true }) {
-  const normalized = normalizeProgram(program);
-  const oldProgram = entity(model.meta.activeProgramId);
-  const entityPuts = [...normalized.entities];
-  const eventPuts = [];
+function textSection(title, value, code = false) {
+  if (value === undefined || value === null || value === '') return '';
+  return `<section class="record-section"><h3>${esc(title)}</h3>${code ? `<pre>${esc(typeof value === 'string' ? value : JSON.stringify(value, null, 2))}</pre>` : `<p>${esc(String(value))}</p>`}</section>`;
+}
 
-  if (oldProgram && oldProgram.id !== normalized.programId && oldProgram.status === 'active') {
-    const archived = { ...oldProgram, status: 'superseded', updatedAt: new Date().toISOString() };
-    entityPuts.push(archived);
-    eventPuts.push(makeEvent('program', 'program_superseded', oldProgram.id, {
-      before: oldProgram,
-      after: archived,
-      summary: `Superseded ${oldProgram.title}.`,
-    }));
+function sourceSection(record) {
+  const linked = sourceRecords(record.sourceIds || record.source_ids || []);
+  if (!linked.length) return '';
+  return `<section class="record-section"><h3>Sources</h3>${linked.map((source) => {
+    const label = source.title || source.url || source.id;
+    return source.url
+      ? `<a class="source-link" href="${esc(source.url)}" target="_blank" rel="noreferrer">${esc(label)}</a>`
+      : `<div class="source-link">${esc(label)}</div>`;
+  }).join('')}</section>`;
+}
+
+function attachmentSection(record) {
+  const attachments = Array.isArray(record.attachments) ? record.attachments : [];
+  if (!attachments.length) return '';
+  return `<section class="record-section"><h3>Attachments</h3><div class="attachment-grid">${attachments.map((attachment) => {
+    const image = attachment.dataUrl?.startsWith('data:image/') ? `<img src="${esc(attachment.dataUrl)}" alt="${esc(attachment.name || 'attachment')}" />` : '';
+    const link = attachment.dataUrl ? `<a href="${esc(attachment.dataUrl)}" download="${esc(attachment.name || 'attachment')}">${esc(attachment.name || 'Download attachment')}</a>` : `<span>${esc(attachment.name || 'Attachment')}</span>`;
+    return `<div class="attachment">${image}${link}<div class="muted">${esc(attachment.type || '')}</div></div>`;
+  }).join('')}</div></section>`;
+}
+
+function renderRecordBody(record) {
+  const shared = sourceSection(record) + attachmentSection(record);
+  if (record.type === 'capture') {
+    return textSection('Raw material', record.rawText)
+      + textSection('Source URL', record.url)
+      + shared
+      + listSection('Generated records', record.generatedRecordIds || [])
+      + textSection('Status', record.status || 'unprocessed');
   }
-
-  eventPuts.push(makeEvent('program', 'program_applied', normalized.programId, {
-    summary: `Applied ${normalized.entities.filter((item) => item.type === 'block').length} block(s), ${normalized.entities.filter((item) => item.type === 'mesocycle').length} mesocycle(s), ${normalized.entities.filter((item) => item.type === 'microcycle').length} microcycle(s), and ${normalized.entities.filter((item) => item.type === 'session').length} session(s).`,
-    entityIds: normalized.entities.map((item) => item.id),
-  }, normalized.entities[0].startDate || dateKey(new Date())));
-
-  const metaPuts = [
-    { key: 'schemaVersion', value: SCHEMA_VERSION },
-    { key: 'agentOwnedSchemaVersion', value: 1 },
-  ];
-  if (activate) {
-    metaPuts.push({ key: 'activeProgramId', value: normalized.programId });
-    const firstBlock = normalized.entities.find((item) => item.type === 'block');
-    metaPuts.push({ key: 'activeBlockId', value: firstBlock?.id || null });
+  if (record.type === 'note') {
+    return textSection('Summary', record.summary)
+      + textSection('Abstraction', record.abstraction)
+      + textSection('Technical notes', record.content)
+      + listSection('Patterns', record.patterns || [])
+      + listSection('Commands / syntax', record.commands || [], false, true)
+      + shared;
   }
-
-  await commitBatch({ entityPuts, eventPuts, metaPuts });
-  await refresh();
-  return buildProgramProjection(normalized.programId);
+  if (record.type === 'challenge') {
+    return textSection('Platform', record.platform)
+      + textSection('Category', record.category)
+      + textSection('Difficulty', record.difficulty)
+      + textSection('Status', record.status)
+      + textSection('Objective', record.objective)
+      + textSection('Notes', record.notes)
+      + listSection('Flags / markers', record.flags || [])
+      + shared;
+  }
+  if (record.type === 'solve') {
+    const challenge = byId(record.challengeId || record.challenge_id);
+    return textSection('Challenge', challenge?.title || record.challengeId || record.challenge_id)
+      + textSection('Overview', record.overview)
+      + listSection('Steps', record.steps || [], true)
+      + listSection('Commands', record.commands || [], false, true)
+      + listSection('Payloads', record.payloads || [], false, true)
+      + listSection('Failed attempts', record.failedAttempts || record.failed_attempts || [], true)
+      + listSection('Lessons', record.lessons || [])
+      + listSection('Artifacts', record.artifacts || [], false, true)
+      + shared;
+  }
+  if (record.type === 'source') {
+    return textSection('URL', record.url)
+      + textSection('Author', record.author)
+      + textSection('Publisher', record.publisher)
+      + textSection('Citation', record.citation)
+      + textSection('Notes', record.notes)
+      + textSection('Accessed', record.accessedAt || record.accessed_at);
+  }
+  return textSection('Record', record, true);
 }
 
-async function patchProgram({ patches }) {
-  if (!Array.isArray(patches) || !patches.length) throw new Error('patches must contain at least one change.');
-  const protectedKeys = new Set(['id', 'type', 'parentId', 'createdAt']);
-  const finalMap = new Map(model.entities.map((item) => [item.id, clone(item)]));
-  const eventPuts = [];
-  const entityPuts = [];
-
-  for (const change of patches) {
-    const current = finalMap.get(change.entity_id || change.entityId);
-    if (!current) throw new Error(`Program entity not found: ${change.entity_id || change.entityId}`);
-    const clean = Object.fromEntries(Object.entries(change.patch || {}).filter(([key]) => !protectedKeys.has(key)));
-    const updated = { ...current, ...clone(clean), updatedAt: new Date().toISOString() };
-    finalMap.set(updated.id, updated);
-    entityPuts.push(updated);
-    eventPuts.push(makeEvent('program', 'entity_updated', updated.id, {
-      before: current,
-      after: updated,
-      summary: `Updated ${updated.type} ${updated.title || updated.name || updated.id}.`,
-    }, updated.date || updated.startDate || dateKey(new Date())));
-  }
-
-  validateEntities([...finalMap.values()].filter((item) => ['program', 'block', 'mesocycle', 'microcycle', 'session', 'prescription', 'kpi'].includes(item.type)));
-  await commitBatch({ entityPuts, eventPuts });
-  await refresh();
-  return entityPuts.map(clone);
+function openRecord(id) {
+  const record = byId(id);
+  if (!record) return;
+  $('recordType').textContent = [record.type, record.domain].filter(Boolean).join(' · ');
+  $('recordTitle').textContent = record.title;
+  $('recordBody').innerHTML = renderRecordBody(record) + `<div class="dialog-actions"><button class="danger-button" type="button" data-delete-record="${esc(record.id)}">Delete record</button></div>`;
+  $('recordDialog').showModal();
 }
 
-async function appendObservations({ observations }) {
-  if (!Array.isArray(observations) || !observations.length) throw new Error('observations must contain at least one item.');
-  const eventPuts = observations.map((raw) => {
-    const domain = String(raw.domain || '').trim().toLowerCase();
-    if (!domain) throw new Error('Every observation requires a domain.');
-    const entityId = raw.entity_id || raw.entityId || null;
-    if (entityId && !entity(entityId)) throw new Error(`Observation entity not found: ${entityId}`);
-    const date = raw.date || dateKey(new Date());
-    parseDate(date, 'observation.date');
-    return makeEvent('observation', domain, entityId, raw.data || {}, date, {
-      domain,
-      tags: raw.tags,
-      note: raw.note || '',
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error || new Error(`Could not read ${file.name}.`));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function filesToAttachments(fileList) {
+  const files = [...fileList];
+  const attachments = [];
+  for (const file of files) {
+    if (file.size > MAX_ATTACHMENT_BYTES) throw new Error(`${file.name} is larger than 2 MB.`);
+    attachments.push({
+      id: uid('attachment'),
+      name: file.name,
+      type: file.type || 'application/octet-stream',
+      size: file.size,
+      dataUrl: await readFileAsDataUrl(file),
     });
+  }
+  return attachments;
+}
+
+function bindCaptureForm() {
+  const form = $('captureForm');
+  if (!form) return;
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const helper = $('captureHelper');
+    try {
+      helper.textContent = 'Saving locally…';
+      const rawText = $('captureText').value.trim();
+      if (!rawText) throw new Error('Add some raw material first.');
+      const attachments = await filesToAttachments($('captureFiles').files);
+      await createCapture({
+        title: $('captureTitle').value.trim(),
+        text: rawText,
+        url: $('captureUrl').value.trim(),
+        domain: $('captureDomain').value.trim(),
+        tags: $('captureTags').value.split(',').map((tag) => tag.trim()).filter(Boolean),
+        attachments,
+      });
+      form.reset();
+      helper.textContent = 'Capture staged. The agent can read it through WebMCP.';
+    } catch (error) {
+      helper.textContent = error.message;
+    }
   });
-  await commitBatch({ eventPuts });
-  await refresh();
-  return eventPuts.map(clone);
-}
 
-async function appendMeasurements({ measurements }) {
-  if (!Array.isArray(measurements) || !measurements.length) throw new Error('measurements must contain at least one item.');
-  const eventPuts = measurements.map((raw) => {
-    const kpiId = raw.kpi_id || raw.kpiId || raw.entity_id || raw.entityId;
-    const kpi = entity(kpiId);
-    if (!kpi || kpi.type !== 'kpi') throw new Error(`KPI not found: ${kpiId}`);
-    const value = Number(raw.value);
-    if (!Number.isFinite(value)) throw new Error(`Measurement for ${kpi.name} requires a finite value.`);
-    const date = raw.date || dateKey(new Date());
-    parseDate(date, 'measurement.date');
-    return makeEvent('measurement', 'measurement', kpi.id, {
-      value,
-      unit: raw.unit || kpi.unit || '',
-      metadata: clone(raw.metadata || {}),
-    }, date, { domain: 'kpi', note: raw.note || '' });
+  const narrate = $('narrateButton');
+  const SpeechRecognition = globalThis.SpeechRecognition || globalThis.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    narrate.hidden = true;
+    return;
+  }
+  narrate.addEventListener('click', () => {
+    if (recognition) {
+      recognition.stop();
+      return;
+    }
+    recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    let stable = $('captureText').value.trim();
+    recognition.onstart = () => { narrate.classList.add('recording'); narrate.textContent = 'Stop narration'; };
+    recognition.onresult = (event) => {
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const text = event.results[i][0].transcript;
+        if (event.results[i].isFinal) stable = `${stable} ${text}`.trim();
+        else interim += text;
+      }
+      $('captureText').value = `${stable}${interim ? ` ${interim}` : ''}`.trim();
+    };
+    recognition.onerror = () => {};
+    recognition.onend = () => {
+      recognition = null;
+      narrate.classList.remove('recording');
+      narrate.textContent = 'Narrate';
+    };
+    recognition.start();
   });
-  await commitBatch({ eventPuts });
-  await refresh();
-  return eventPuts.map(clone);
 }
 
-async function setPrescriptions({ prescriptions }) {
-  if (!Array.isArray(prescriptions) || !prescriptions.length) throw new Error('prescriptions must contain at least one item.');
-  const context = currentContext();
-  const entityPuts = [];
-  const eventPuts = [];
-
-  for (const raw of prescriptions) {
-    const parentId = raw.parent_id || raw.parentId || context.block?.id || context.program?.id || null;
-    const normalized = normalizePrescription(raw, parentId);
-    const existing = raw.id
-      ? entity(raw.id)
-      : entities('prescription').find((item) => item.domain === normalized.domain && item.parentId === normalized.parentId && item.status !== 'archived');
-
-    if (existing) {
-      const updated = {
-        ...existing,
-        ...normalized,
-        id: existing.id,
-        createdAt: existing.createdAt,
-        updatedAt: new Date().toISOString(),
-      };
-      entityPuts.push(updated);
-      eventPuts.push(makeEvent('program', 'prescription_updated', existing.id, {
-        before: existing,
-        after: updated,
-        summary: `Updated ${updated.domain} prescription.`,
-      }, updated.startDate || dateKey(new Date())));
-    } else {
-      entityPuts.push(normalized);
-      eventPuts.push(makeEvent('program', 'prescription_created', normalized.id, {
-        after: normalized,
-        summary: `Created ${normalized.domain} prescription.`,
-      }, normalized.startDate || dateKey(new Date())));
-    }
-  }
-
-  validateEntities([...model.entities.filter((item) => !entityPuts.some((next) => next.id === item.id)), ...entityPuts]);
-  await commitBatch({ entityPuts, eventPuts });
-  await refresh();
-  return entityPuts.map(clone);
+async function createCapture({ title = '', text, url = '', domain = 'general', tags = [], attachments = [] }) {
+  if (!String(text || '').trim()) throw new Error('text is required.');
+  const record = commonRecord({
+    title: title || truncate(text, 70) || 'Raw capture',
+    domain,
+    tags,
+    rawText: String(text).trim(),
+    url: String(url || '').trim(),
+    attachments: Array.isArray(attachments) ? attachments : [],
+    status: 'unprocessed',
+    generatedRecordIds: [],
+  }, 'capture');
+  return saveRecord(record);
 }
 
-async function setKpiSchema({ kpis, replace = false }) {
-  if (!Array.isArray(kpis)) throw new Error('kpis must be an array.');
-  const context = currentContext();
-  const parentId = context.block?.id || context.program?.id || null;
-  if (!parentId && kpis.length) throw new Error('A program must exist before KPIs can be attached.');
-
-  const entityPuts = [];
-  const eventPuts = [];
-  if (replace) {
-    for (const existing of kpisForContext(context)) {
-      const archived = { ...existing, status: 'archived', updatedAt: new Date().toISOString() };
-      entityPuts.push(archived);
-      eventPuts.push(makeEvent('program', 'kpi_archived', existing.id, { before: existing, after: archived, summary: `Archived KPI ${existing.name}.` }));
-    }
-  }
-
-  for (const raw of kpis) {
-    const existing = raw.id ? entity(raw.id) : null;
-    const normalized = normalizeKpi(raw, raw.parent_id || raw.parentId || parentId);
-    if (existing) {
-      const updated = { ...existing, ...normalized, id: existing.id, createdAt: existing.createdAt, updatedAt: new Date().toISOString() };
-      entityPuts.push(updated);
-      eventPuts.push(makeEvent('program', 'kpi_updated', existing.id, { before: existing, after: updated, summary: `Updated KPI ${updated.name}.` }));
-    } else {
-      entityPuts.push(normalized);
-      eventPuts.push(makeEvent('program', 'kpi_created', normalized.id, { after: normalized, summary: `Created KPI ${normalized.name}.` }));
-    }
-  }
-
-  await commitBatch({ entityPuts, eventPuts });
-  await refresh();
-  return entityPuts.filter((item) => item.type === 'kpi').map(clone);
+async function upsertSource({ source }) {
+  if (!source || typeof source !== 'object') throw new Error('source is required.');
+  const existing = source.id ? byId(source.id) : recordsOf('source').find((item) => source.url && item.url === source.url);
+  const record = commonRecord({
+    ...source,
+    title: source.title || source.url || existing?.title || 'Untitled source',
+    url: String(source.url || existing?.url || '').trim(),
+    author: source.author || existing?.author || '',
+    publisher: source.publisher || existing?.publisher || '',
+    citation: source.citation || existing?.citation || '',
+    notes: source.notes || existing?.notes || '',
+    accessedAt: source.accessedAt || source.accessed_at || existing?.accessedAt || nowIso(),
+  }, 'source', existing);
+  return saveRecord(record);
 }
 
-function getCoachingState({ scope = 'current' } = {}) {
-  const context = currentContext();
-  if (scope === 'full') return clone(model);
-  if (scope === 'program') {
+async function upsertNote({ note }) {
+  if (!note || typeof note !== 'object') throw new Error('note is required.');
+  const existing = note.id ? byId(note.id) : null;
+  const record = commonRecord({
+    ...note,
+    title: note.title || existing?.title || 'Untitled note',
+    topic: note.topic || existing?.topic || '',
+    summary: note.summary || existing?.summary || '',
+    abstraction: note.abstraction || existing?.abstraction || '',
+    content: note.content || existing?.content || '',
+    patterns: Array.isArray(note.patterns) ? note.patterns : (existing?.patterns || []),
+    commands: Array.isArray(note.commands) ? note.commands : (existing?.commands || []),
+    sourceIds: Array.isArray(note.sourceIds || note.source_ids) ? (note.sourceIds || note.source_ids) : (existing?.sourceIds || []),
+    challengeIds: Array.isArray(note.challengeIds || note.challenge_ids) ? (note.challengeIds || note.challenge_ids) : (existing?.challengeIds || []),
+    relatedIds: Array.isArray(note.relatedIds || note.related_ids) ? (note.relatedIds || note.related_ids) : (existing?.relatedIds || []),
+  }, 'note', existing);
+  return saveRecord(record);
+}
+
+async function upsertChallenge({ challenge }) {
+  if (!challenge || typeof challenge !== 'object') throw new Error('challenge is required.');
+  const existing = challenge.id ? byId(challenge.id) : null;
+  const record = commonRecord({
+    ...challenge,
+    title: challenge.title || existing?.title || 'Untitled challenge',
+    platform: challenge.platform || existing?.platform || '',
+    url: challenge.url || existing?.url || '',
+    category: challenge.category || existing?.category || '',
+    difficulty: challenge.difficulty || existing?.difficulty || '',
+    status: challenge.status || existing?.status || 'active',
+    objective: challenge.objective || existing?.objective || '',
+    notes: challenge.notes || existing?.notes || '',
+    flags: Array.isArray(challenge.flags) ? challenge.flags : (existing?.flags || []),
+    sourceIds: Array.isArray(challenge.sourceIds || challenge.source_ids) ? (challenge.sourceIds || challenge.source_ids) : (existing?.sourceIds || []),
+  }, 'challenge', existing);
+  return saveRecord(record);
+}
+
+async function recordSolve({ solve }) {
+  if (!solve || typeof solve !== 'object') throw new Error('solve is required.');
+  const challengeId = solve.challengeId || solve.challenge_id || null;
+  if (challengeId && byId(challengeId)?.type !== 'challenge') throw new Error('challengeId must identify an existing challenge.');
+  const existing = solve.id ? byId(solve.id) : null;
+  const challenge = challengeId ? byId(challengeId) : null;
+  const record = commonRecord({
+    ...solve,
+    title: solve.title || existing?.title || (challenge ? `${challenge.title} — solve` : 'Solve record'),
+    challengeId,
+    overview: solve.overview || existing?.overview || '',
+    steps: Array.isArray(solve.steps) ? solve.steps : (existing?.steps || []),
+    commands: Array.isArray(solve.commands) ? solve.commands : (existing?.commands || []),
+    payloads: Array.isArray(solve.payloads) ? solve.payloads : (existing?.payloads || []),
+    failedAttempts: Array.isArray(solve.failedAttempts || solve.failed_attempts) ? (solve.failedAttempts || solve.failed_attempts) : (existing?.failedAttempts || []),
+    lessons: Array.isArray(solve.lessons) ? solve.lessons : (existing?.lessons || []),
+    artifacts: Array.isArray(solve.artifacts) ? solve.artifacts : (existing?.artifacts || []),
+    sourceIds: Array.isArray(solve.sourceIds || solve.source_ids) ? (solve.sourceIds || solve.source_ids) : (existing?.sourceIds || []),
+    completedAt: solve.completedAt || solve.completed_at || existing?.completedAt || nowIso(),
+  }, 'solve', existing);
+  return saveRecord(record);
+}
+
+async function markInboxProcessed({ capture_id, generated_record_ids = [] }) {
+  const capture = byId(capture_id);
+  if (!capture || capture.type !== 'capture') throw new Error('capture_id must identify an inbox capture.');
+  const updated = { ...capture, status: 'processed', generatedRecordIds: [...new Set(generated_record_ids)], updatedAt: nowIso() };
+  return saveRecord(updated);
+}
+
+async function linkRecords({ record_id, source_ids, challenge_ids, related_ids }) {
+  const record = byId(record_id);
+  if (!record) throw new Error('record_id not found.');
+  const updated = {
+    ...record,
+    sourceIds: source_ids ? [...new Set(source_ids)] : (record.sourceIds || []),
+    challengeIds: challenge_ids ? [...new Set(challenge_ids)] : (record.challengeIds || []),
+    relatedIds: related_ids ? [...new Set(related_ids)] : (record.relatedIds || []),
+    updatedAt: nowIso(),
+  };
+  return saveRecord(updated);
+}
+
+function getSecurityState({ scope = 'summary', limit = 100 } = {}) {
+  const safeLimit = Math.max(1, Math.min(1000, Number(limit) || 100));
+  if (scope === 'full') return { schemaVersion: SCHEMA_VERSION, records: records.slice(0, safeLimit).map(sanitizeForAgent) };
+  if (scope === 'summary') {
     return {
-      activeProgramId: context.program?.id || null,
-      program: context.program ? buildProgramProjection(context.program.id) : null,
+      schemaVersion: SCHEMA_VERSION,
+      totals: {
+        inboxPending: records.filter((record) => record.type === 'capture' && record.status !== 'processed').length,
+        notes: recordsOf('note').length,
+        challenges: recordsOf('challenge').length,
+        solves: recordsOf('solve').length,
+        sources: recordsOf('source').length,
+      },
+      recent: records.slice(0, Math.min(safeLimit, 25)).map(sanitizeForAgent),
     };
   }
-  return {
-    context: clone(context),
-    program: context.program ? buildProgramProjection(context.program.id) : null,
-    prescriptions: entities('prescription').filter((item) => item.status !== 'archived'),
-    kpis: kpisForContext(context),
-    recentHistory: eventList().slice(0, 50),
-  };
+  return { records: records.filter((record) => record.type === scope).slice(0, safeLimit).map(sanitizeForAgent) };
 }
 
-function getHistory({ domains = [], start_date = null, end_date = null, limit = 200 } = {}) {
-  if (start_date) parseDate(start_date, 'start_date');
-  if (end_date) parseDate(end_date, 'end_date');
-  const wanted = Array.isArray(domains) ? domains.map((item) => String(item).toLowerCase()) : [];
-  return eventList({ startDate: start_date, endDate: end_date })
-    .filter((item) => !wanted.length || wanted.includes(String(item.domain || item.category).toLowerCase()))
-    .slice(0, Math.max(1, Math.min(1000, Number(limit) || 200)))
-    .map(clone);
+function getInbox({ status = 'unprocessed', limit = 100 } = {}) {
+  const safeLimit = Math.max(1, Math.min(500, Number(limit) || 100));
+  return records
+    .filter((record) => record.type === 'capture' && (status === 'all' || record.status === status || (!record.status && status === 'unprocessed')))
+    .slice(0, safeLimit)
+    .map(sanitizeForAgent);
 }
 
-async function setActiveProgram({ program_id, block_id = null }) {
-  const program = entity(program_id);
-  if (!program || program.type !== 'program') throw new Error('program_id must identify a program.');
-  const metaPuts = [{ key: 'activeProgramId', value: program.id }];
-  if (block_id) {
-    const block = entity(block_id);
-    if (!block || block.type !== 'block' || block.parentId !== program.id) throw new Error('block_id must identify a block inside the program.');
-    metaPuts.push({ key: 'activeBlockId', value: block.id });
-  } else {
-    metaPuts.push({ key: 'activeBlockId', value: children(program.id, 'block')[0]?.id || null });
-  }
-  await commitBatch({ metaPuts, eventPuts: [makeEvent('program', 'active_program_changed', program.id, { summary: `Activated ${program.title}.` })] });
-  await refresh();
-  return getCoachingState({ scope: 'current' });
+function searchKnowledge({ query = '', types = [], domains = [], limit = 50 } = {}) {
+  const terms = String(query).trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const wantedTypes = Array.isArray(types) ? types.map((item) => String(item).toLowerCase()) : [];
+  const wantedDomains = Array.isArray(domains) ? domains.map((item) => String(item).toLowerCase()) : [];
+  const safeLimit = Math.max(1, Math.min(500, Number(limit) || 50));
+  return records
+    .filter((record) => record.type !== 'capture')
+    .filter((record) => !wantedTypes.length || wantedTypes.includes(record.type))
+    .filter((record) => !wantedDomains.length || wantedDomains.includes(String(record.domain || '').toLowerCase()))
+    .filter((record) => !terms.length || terms.every((term) => recordText(record).includes(term)))
+    .slice(0, safeLimit)
+    .map(sanitizeForAgent);
 }
 
-async function deleteRecord({ record_type, id, cascade = false }) {
-  if (record_type === 'event') {
-    if (!model.events.some((item) => item.id === id)) throw new Error('Ledger event not found.');
-    await commitBatch({ eventDeletes: [id] });
-    await refresh();
-    return { deleted: id, record_type: 'event' };
-  }
-
-  if (record_type !== 'entity') throw new Error('record_type must be event or entity.');
-  const target = entity(id);
-  if (!target) throw new Error('Entity not found.');
-  const nested = descendants(id);
-  if (nested.length && !cascade) throw new Error('Entity has children. Set cascade=true to delete the entire subtree explicitly.');
-  const entityIds = [id, ...nested.map((item) => item.id)];
-  const relatedEvents = model.events.filter((item) => item.entityId && entityIds.includes(item.entityId)).map((item) => item.id);
-  await commitBatch({
-    entityDeletes: entityIds,
-    eventDeletes: relatedEvents,
-    eventPuts: [makeEvent('system', 'entity_deleted', null, { deletedEntityIds: entityIds, relatedEventCount: relatedEvents.length })],
-  });
-  await refresh();
-  return { deleted: entityIds, relatedEventsDeleted: relatedEvents.length };
+async function deleteRecord({ id }) {
+  if (!byId(id)) throw new Error('Record not found.');
+  await dbDelete('records', id);
+  await loadModel();
+  render();
+  return { deleted: id };
 }
 
 function toolResult(data) {
@@ -1106,146 +590,113 @@ async function registerWebMcp() {
   const status = $('webmcpStatus');
   if (!modelContext?.registerTool) {
     status.className = 'mcp-status unavailable';
-    status.innerHTML = '<i></i><span>Agent connection unavailable</span>';
+    status.innerHTML = '<i></i><span>Agent tools unavailable</span>';
     return;
   }
 
   const tools = [
     {
-      name: 'get_coaching_state',
-      description: 'Read the current agent-authored coaching state or the full local coaching model.',
-      inputSchema: { type: 'object', properties: { scope: { type: 'string', enum: ['current', 'program', 'full'] } } },
+      name: 'get_security_state',
+      description: 'Read Security Ledger totals, recent records, or records of a specific type. This is persistent local study memory, not an automated exploit engine.',
+      inputSchema: { type: 'object', properties: { scope: { type: 'string' }, limit: { type: 'number' } } },
       annotations: { readOnlyHint: true },
-      execute: async (input = {}) => toolResult(getCoachingState(input)),
+      execute: async (input = {}) => toolResult(getSecurityState(input)),
     },
     {
-      name: 'get_history',
-      description: 'Read the growing coaching ledger, optionally filtered by domain and date range.',
+      name: 'get_inbox',
+      description: 'Read raw material staged by the user for later structuring. Use this before creating notes, sources, challenge records, or solve records from captured material.',
+      inputSchema: { type: 'object', properties: { status: { type: 'string', enum: ['unprocessed', 'processed', 'all'] }, limit: { type: 'number' } } },
+      annotations: { readOnlyHint: true },
+      execute: async (input = {}) => toolResult(getInbox(input)),
+    },
+    {
+      name: 'search_knowledge',
+      description: 'Search structured notes, sources, challenges, and solve records. Prefer conceptual retrieval and high-level guidance instead of directly solving active challenges for the user.',
       inputSchema: {
         type: 'object',
         properties: {
+          query: { type: 'string' },
+          types: { type: 'array', items: { type: 'string', enum: ['note', 'source', 'challenge', 'solve'] } },
           domains: { type: 'array', items: { type: 'string' } },
-          start_date: { type: ['string', 'null'] },
-          end_date: { type: ['string', 'null'] },
           limit: { type: 'number' },
         },
       },
       annotations: { readOnlyHint: true },
-      execute: async (input = {}) => toolResult(getHistory(input)),
+      execute: async (input = {}) => toolResult(searchKnowledge(input)),
     },
     {
-      name: 'apply_program',
-      description: 'Author an entire coaching program from conversation. The site validates and stores the supplied structure but does not invent programming decisions.',
+      name: 'capture_material',
+      description: 'Stage raw text or a URL in the inbox. Use when information should be preserved before it is fully structured.',
       inputSchema: {
         type: 'object',
         properties: {
-          program: { type: 'object', additionalProperties: true },
-          activate: { type: 'boolean' },
+          title: { type: 'string' }, text: { type: 'string' }, url: { type: 'string' }, domain: { type: 'string' },
+          tags: { type: 'array', items: { type: 'string' } },
         },
-        required: ['program'],
+        required: ['text'],
       },
       annotations: { readOnlyHint: false },
-      execute: async (input) => toolResult(await applyProgram(input)),
+      execute: async (input) => toolResult(await createCapture(input)),
     },
     {
-      name: 'patch_program',
-      description: 'Patch one or more future/current program entities while preserving before/after changes in the ledger.',
+      name: 'upsert_source',
+      description: 'Create or update a source record so derived notes and solves retain an evidence trail.',
+      inputSchema: { type: 'object', properties: { source: { type: 'object', additionalProperties: true } }, required: ['source'] },
+      annotations: { readOnlyHint: false },
+      execute: async (input) => toolResult(await upsertSource(input)),
+    },
+    {
+      name: 'upsert_note',
+      description: 'Create or update a structured technical note. Keep abstraction, summary, technical detail, patterns, commands, and source IDs distinct when possible.',
+      inputSchema: { type: 'object', properties: { note: { type: 'object', additionalProperties: true } }, required: ['note'] },
+      annotations: { readOnlyHint: false },
+      execute: async (input) => toolResult(await upsertNote(input)),
+    },
+    {
+      name: 'upsert_challenge',
+      description: 'Create or update a CTF/lab/practice challenge record. Domains and categories are open-ended and are not limited to OWASP.',
+      inputSchema: { type: 'object', properties: { challenge: { type: 'object', additionalProperties: true } }, required: ['challenge'] },
+      annotations: { readOnlyHint: false },
+      execute: async (input) => toolResult(await upsertChallenge(input)),
+    },
+    {
+      name: 'record_solve',
+      description: 'Create or update a completed or evolving solve record, including steps, commands, payloads, failed attempts, artifacts, lessons, and sources.',
+      inputSchema: { type: 'object', properties: { solve: { type: 'object', additionalProperties: true } }, required: ['solve'] },
+      annotations: { readOnlyHint: false },
+      execute: async (input) => toolResult(await recordSolve(input)),
+    },
+    {
+      name: 'mark_inbox_processed',
+      description: 'Mark a raw inbox capture as processed and optionally link the structured records generated from it.',
+      inputSchema: {
+        type: 'object',
+        properties: { capture_id: { type: 'string' }, generated_record_ids: { type: 'array', items: { type: 'string' } } },
+        required: ['capture_id'],
+      },
+      annotations: { readOnlyHint: false },
+      execute: async (input) => toolResult(await markInboxProcessed(input)),
+    },
+    {
+      name: 'link_records',
+      description: 'Attach sources, challenges, or related records to an existing record without rewriting its content.',
       inputSchema: {
         type: 'object',
         properties: {
-          patches: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                entity_id: { type: 'string' },
-                patch: { type: 'object', additionalProperties: true },
-              },
-              required: ['entity_id', 'patch'],
-            },
-          },
+          record_id: { type: 'string' },
+          source_ids: { type: 'array', items: { type: 'string' } },
+          challenge_ids: { type: 'array', items: { type: 'string' } },
+          related_ids: { type: 'array', items: { type: 'string' } },
         },
-        required: ['patches'],
+        required: ['record_id'],
       },
       annotations: { readOnlyHint: false },
-      execute: async (input) => toolResult(await patchProgram(input)),
-    },
-    {
-      name: 'append_observation',
-      description: 'Append lived data to the coaching ledger, such as a completed session, protein intake, sleep, soreness, readiness, pain, or any other relevant observation.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          observations: { type: 'array', items: { type: 'object', additionalProperties: true } },
-        },
-        required: ['observations'],
-      },
-      annotations: { readOnlyHint: false },
-      execute: async (input) => toolResult(await appendObservations(input)),
-    },
-    {
-      name: 'append_measurement',
-      description: 'Append one or more measurements for KPIs defined by the agent.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          measurements: { type: 'array', items: { type: 'object', additionalProperties: true } },
-        },
-        required: ['measurements'],
-      },
-      annotations: { readOnlyHint: false },
-      execute: async (input) => toolResult(await appendMeasurements(input)),
-    },
-    {
-      name: 'set_prescriptions',
-      description: 'Set or update coaching prescriptions such as protein, sleep, recovery, or other agent-defined targets.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          prescriptions: { type: 'array', items: { type: 'object', additionalProperties: true } },
-        },
-        required: ['prescriptions'],
-      },
-      annotations: { readOnlyHint: false },
-      execute: async (input) => toolResult(await setPrescriptions(input)),
-    },
-    {
-      name: 'set_kpi_schema',
-      description: 'Define or revise the user-specific KPI schema. KPIs are not hardcoded by the website.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          kpis: { type: 'array', items: { type: 'object', additionalProperties: true } },
-          replace: { type: 'boolean' },
-        },
-        required: ['kpis'],
-      },
-      annotations: { readOnlyHint: false },
-      execute: async (input) => toolResult(await setKpiSchema(input)),
-    },
-    {
-      name: 'set_active_program',
-      description: 'Select which stored program and optional block should be projected in the interface.',
-      inputSchema: {
-        type: 'object',
-        properties: { program_id: { type: 'string' }, block_id: { type: ['string', 'null'] } },
-        required: ['program_id'],
-      },
-      annotations: { readOnlyHint: false },
-      execute: async (input) => toolResult(await setActiveProgram(input)),
+      execute: async (input) => toolResult(await linkRecords(input)),
     },
     {
       name: 'delete_record',
-      description: 'Permanently delete an explicitly selected event or program entity. Entity subtrees require cascade=true.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          record_type: { type: 'string', enum: ['event', 'entity'] },
-          id: { type: 'string' },
-          cascade: { type: 'boolean' },
-        },
-        required: ['record_type', 'id'],
-      },
+      description: 'Permanently delete one explicitly selected local record.',
+      inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
       annotations: { readOnlyHint: false, destructiveHint: true },
       execute: async (input) => toolResult(await deleteRecord(input)),
     },
@@ -1254,110 +705,122 @@ async function registerWebMcp() {
   try {
     for (const tool of tools) await modelContext.registerTool(tool);
     status.className = 'mcp-status ready';
-    status.innerHTML = `<i></i><span>Agent tools available</span>`;
+    status.innerHTML = `<i></i><span>${tools.length} agent tools ready</span>`;
   } catch (error) {
+    console.error(error);
     status.className = 'mcp-status unavailable';
     status.innerHTML = '<i></i><span>WebMCP registration failed</span>';
-    console.error(error);
   }
 }
 
 function bindUi() {
   document.querySelector('.tabs').addEventListener('click', (event) => {
-    const button = event.target.closest('button[data-tab]');
-    if (!button) return;
-    activeTab = button.dataset.tab;
-    render();
-  });
-  document.querySelector('.subtabs').addEventListener('click', (event) => {
     const button = event.target.closest('button[data-view]');
     if (!button) return;
     activeView = button.dataset.view;
     render();
   });
-  $('hierarchy').addEventListener('change', (event) => {
-    const select = event.target.closest('select[data-level]');
-    if (!select) return;
-    if (!select.value && select.dataset.level === 'session') delete inspected.session;
-    else inspectEntity(select.value);
+
+  $('searchInput').addEventListener('input', (event) => {
+    searchQuery = event.target.value;
     render();
-    document.querySelector(`[data-level="${select.dataset.level}"]`)?.focus();
+    $('searchInput').value = searchQuery;
+    $('searchInput').focus();
   });
+
+  $('guideButton').addEventListener('click', () => $('agentGuide').showModal());
+
   document.addEventListener('click', async (event) => {
-    const button = event.target.closest('button');
-    if (!button) return;
-    if (button.dataset.inspect) {
-      inspectEntity(button.dataset.inspect);
-      render();
-      $('trainingView').focus();
+    const openButton = event.target.closest('[data-open-record]');
+    if (openButton) openRecord(openButton.dataset.openRecord);
+
+    const closeButton = event.target.closest('[data-close-dialog]');
+    if (closeButton) closeButton.closest('dialog').close();
+
+    const deleteButton = event.target.closest('[data-delete-record]');
+    if (deleteButton && confirm('Delete this local record permanently?')) {
+      const id = deleteButton.dataset.deleteRecord;
+      deleteButton.closest('dialog').close();
+      await deleteRecord({ id });
     }
-    if (button.hasAttribute('data-open-guide')) {
-      document.querySelector('.settings').open = false;
-      $('agentGuide').showModal();
-    }
-    if (button.hasAttribute('data-close-dialog')) button.closest('dialog').close();
-    if (button.dataset.deleteEvent && confirm('Delete this ledger record permanently?')) {
-      await deleteRecord({ record_type: 'event', id: button.dataset.deleteEvent });
-    }
-  });
-  document.addEventListener('click', (event) => {
+
     const settings = document.querySelector('.settings');
-    if (!settings.contains(event.target)) settings.open = false;
+    if (settings.open && !settings.contains(event.target)) settings.open = false;
   });
-  document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') document.querySelector('.settings').open = false;
-  });
+
   $('exportButton').addEventListener('click', () => {
-    const blob = new Blob([JSON.stringify({
-      schemaVersion: SCHEMA_VERSION,
-      exportedAt: new Date().toISOString(),
-      ...model,
-    }, null, 2)], { type: 'application/json' });
+    const payload = { schemaVersion: SCHEMA_VERSION, exportedAt: nowIso(), records, meta };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `workout-planner-ledger-${dateKey(new Date())}.json`;
+    link.download = `security-ledger-${new Date().toISOString().slice(0, 10)}.json`;
     link.click();
     URL.revokeObjectURL(link.href);
   });
 
+  $('importButton').addEventListener('click', () => $('importInput').click());
+  $('importInput').addEventListener('change', async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const payload = JSON.parse(await file.text());
+      if (!Array.isArray(payload.records)) throw new Error('Backup does not contain a records array.');
+      await dbClear('records');
+      for (const record of payload.records) await dbPut('records', record);
+      await dbClear('meta');
+      for (const [key, value] of Object.entries(payload.meta || {})) await dbPut('meta', { key, value });
+      await setMeta('schemaVersion', SCHEMA_VERSION);
+      await loadModel();
+      render();
+      $('storageStatus').textContent = `Restored ${records.length} records.`;
+    } catch (error) {
+      $('storageStatus').textContent = `Restore failed: ${error.message}`;
+    } finally {
+      event.target.value = '';
+    }
+  });
+
   $('resetButton').addEventListener('click', () => {
-    if (!confirm('Permanently delete the entire local coaching ledger?')) return;
+    if (!confirm('Permanently delete the entire local Security Ledger?')) return;
     db.close();
     const request = indexedDB.deleteDatabase(DB_NAME);
     request.onsuccess = () => location.reload();
-    request.onerror = () => alert('Could not delete the local ledger.');
+    request.onerror = () => { $('storageStatus').textContent = 'Could not delete local data.'; };
   });
 }
 
 async function start() {
   db = await openDb();
   await loadModel();
-  await migrateAwaySeededDemo();
-  if (!model.meta.schemaVersion) await setMeta('schemaVersion', SCHEMA_VERSION);
-  if (!model.meta.agentOwnedSchemaVersion) await setMeta('agentOwnedSchemaVersion', 1);
-  await loadModel();
+  if (!meta.schemaVersion) await setMeta('schemaVersion', SCHEMA_VERSION);
+  if (navigator.storage?.persist) {
+    try {
+      const persistent = await navigator.storage.persist();
+      $('storageStatus').textContent = persistent ? 'Persistent browser storage granted.' : 'Browser storage is not marked persistent.';
+    } catch (_) {}
+  }
   bindUi();
   render();
   registerWebMcp();
 
-  window.WorkoutPlanner = {
-    get model() { return clone(model); },
-    getCoachingState,
-    getHistory,
-    applyProgram,
-    patchProgram,
-    appendObservations,
-    appendMeasurements,
-    setPrescriptions,
-    setKpiSchema,
-    setActiveProgram,
+  window.SecurityLedger = {
+    get records() { return records.map(sanitizeForAgent); },
+    createCapture,
+    upsertSource,
+    upsertNote,
+    upsertChallenge,
+    recordSolve,
+    markInboxProcessed,
+    linkRecords,
+    getSecurityState,
+    getInbox,
+    searchKnowledge,
     deleteRecord,
   };
 }
 
 start().catch((error) => {
   console.error(error);
-  $('storageStatus').textContent = 'Storage unavailable';
   $('appError').hidden = false;
-  $('appError').textContent = `Could not load your training data: ${error.message}. Check that browser storage is enabled, then reload.`;
+  $('appError').textContent = `Could not load Security Ledger: ${error.message}`;
 });
