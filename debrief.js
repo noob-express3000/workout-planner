@@ -218,11 +218,11 @@ async function saveDebrief() {
       const source = existing || commonRecord({ title: new URL(url).hostname, url, notes: 'Reference supplied by the learner; page not fetched by the debrief agent.', accessedAt: timestamp }, 'source');
       sourceIds.push(source.id); if (!existing) batch.push(source);
     }
-    const captureId = `${s.id}-capture`, noteId = `${s.id}-note`, solveId = `${s.id}-solve`;
+    const captureId = `${s.id}-capture`, noteId = `${s.id}-note`, sessionId = `${s.id}-session`;
     const lines = items => items.map(x => `${x.text}\nEvidence: “${x.evidence}”`);
-    batch.push(commonRecord({ id: captureId, title, rawText: s.transcript, status: 'processed', generatedRecordIds: [noteId, solveId, ...sourceIds], sourceIds, attachments: [], provider: 'AssemblyAI debrief', questions: s.questions }, 'capture'));
-    batch.push(commonRecord({ id: noteId, title, summary: d.summary, content: [...lines(d.lessons), ...lines(d.steps)].join('\n\n'), sourceIds, relatedIds: [captureId, solveId], reviewStatus: 'User-reviewed AI draft', provenance: { captureId, provider: 'AssemblyAI LLM Gateway' } }, 'note'));
-    batch.push(commonRecord({ id: solveId, title: `${title} — session`, activityType: 'study-session', overview: d.summary, steps: lines(d.steps), failedAttempts: lines(d.failedAttempts), lessons: lines(d.lessons), sourceIds, relatedIds: [captureId, noteId], originalTranscript: s.transcript, openQuestions: [...d.gaps, ...(d.question ? [d.question] : [])], agentSuggestions: d.suggestions, reviewStatus: 'User-reviewed AI draft; completion not asserted', completedAt: '', provenance: { captureId, provider: 'AssemblyAI LLM Gateway' } }, 'solve'));
+    batch.push(commonRecord({ id: captureId, title, rawText: s.transcript, status: 'processed', generatedRecordIds: [noteId, sessionId, ...sourceIds], sourceIds, attachments: [], provider: 'AssemblyAI debrief', questions: s.questions }, 'capture'));
+    batch.push(commonRecord({ id: noteId, title, summary: d.summary, content: [...lines(d.lessons), ...lines(d.steps)].join('\n\n'), sourceIds, relatedIds: [captureId, sessionId], reviewStatus: 'User-reviewed AI draft', provenance: { captureId, provider: 'AssemblyAI LLM Gateway' } }, 'note'));
+    batch.push(commonRecord({ id: sessionId, title: `${title} — session`, activityType: 'study-session', overview: d.summary, steps: lines(d.steps), failedAttempts: lines(d.failedAttempts), lessons: lines(d.lessons), sourceIds, relatedIds: [captureId, noteId], originalTranscript: s.transcript, openQuestions: [...d.gaps, ...(d.question ? [d.question] : [])], agentSuggestions: d.suggestions, reviewStatus: 'User-reviewed AI draft; completion not asserted', completedAt: '', provenance: { captureId, provider: 'AssemblyAI LLM Gateway' } }, 'session'));
     const saved = { ...s, saved: true };
     await new Promise((resolve, reject) => {
       const tx = db.transaction(['records', 'meta'], 'readwrite');
