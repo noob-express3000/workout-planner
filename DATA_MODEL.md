@@ -1,12 +1,10 @@
 # Study Ledger data model
 
-Schema version: `1`
+Schema version: `2`
 
-Study Ledger uses one IndexedDB object store for records plus a small `meta` store.
+Study Ledger uses one IndexedDB object store for records plus a small `meta` store. The IndexedDB database name is `study-ledger`.
 
-The storage schema deliberately keeps the original record type names so existing Security Ledger browser data remains readable. The product semantics are broader than those legacy names.
-
-## Common record fields
+## Common fields
 
 Every record contains:
 
@@ -22,7 +20,7 @@ Every record contains:
 }
 ```
 
-`domain` is free-form. It may represent a subject, field, module, course, or narrower topic. Records may also carry additional domain-specific fields without a schema migration.
+`domain` is free-form. It can represent a subject, field, module, course, or narrower topic.
 
 ## capture
 
@@ -35,19 +33,11 @@ Raw material staged before it is structured.
   "url": "https://example.com/reference",
   "status": "unprocessed",
   "generatedRecordIds": [],
-  "attachments": [
-    {
-      "id": "attachment-...",
-      "name": "screen.png",
-      "type": "image/png",
-      "size": 123456,
-      "dataUrl": "data:image/png;base64,..."
-    }
-  ]
+  "attachments": []
 }
 ```
 
-Files remain local. WebMCP responses remove `dataUrl` and expose only metadata plus `storedLocally: true`.
+Attachments remain local. WebMCP responses remove stored file data and expose metadata only.
 
 ## source
 
@@ -76,47 +66,48 @@ Structured study memory.
   "abstraction": "high-level explanation",
   "content": "deeper notes",
   "patterns": ["recognition cue or recurring pattern"],
-  "commands": ["optional syntax, command, formula, or notation worth retaining"],
+  "commands": ["optional syntax, command, formula, or notation"],
   "sourceIds": ["source-..."],
-  "challengeIds": ["challenge-..."],
+  "practiceIds": ["practice-..."],
   "relatedIds": ["note-..."]
 }
 ```
 
-The `commands` field is retained for compatibility and technical subjects; nontechnical notes may leave it empty or store notation elsewhere.
+The `commands` field remains useful for technical subjects. Other subjects can leave it empty.
 
-## challenge — generic practice item
+## practice
 
-`challenge` is the legacy storage type for any bounded practice item: a problem, lab, exercise, revision objective, assignment task, experiment, or CTF challenge.
+A bounded task or objective the learner can work on.
 
 ```json
 {
-  "type": "challenge",
+  "type": "practice",
   "title": "Problem set 4, question 3",
-  "platform": "Calculus I",
+  "context": "Calculus I",
   "category": "derivatives",
   "difficulty": "medium",
   "status": "active",
   "objective": "differentiate the composite function and explain each step",
   "notes": "context worth preserving",
-  "flags": [],
+  "markers": [],
   "sourceIds": []
 }
 ```
 
-Fields remain open-ended. For cybersecurity, `platform`, `flags`, and technical metadata can continue to be used exactly as before.
+Examples include exercises, revision objectives, labs, assignment tasks, experiments, programming tasks, and CTF challenges.
 
-## solve — generic study/practice session
+## session
 
-`solve` is the legacy storage type for an evolving or completed study/practice session.
+An evolving or completed study/practice session.
 
 ```json
 {
-  "type": "solve",
-  "challengeId": "challenge-...",
+  "type": "session",
+  "practiceId": "practice-...",
   "activityType": "study-session",
   "overview": "what mattered in the session",
   "steps": ["reasoning or action step"],
+  "methods": ["formula, method, or technique"],
   "commands": [],
   "payloads": [],
   "failedAttempts": ["what failed or remained unclear"],
@@ -127,7 +118,7 @@ Fields remain open-ended. For cybersecurity, `platform`, `flags`, and technical 
 }
 ```
 
-Technical fields such as `commands`, `payloads`, and `artifacts` remain available for programming, cybersecurity, engineering, and lab work. Other subjects can simply leave them empty.
+Technical fields such as `commands`, `payloads`, and `artifacts` are optional and remain available for programming, cybersecurity, engineering, and lab work.
 
 ## Meta store
 
@@ -142,19 +133,13 @@ voiceSpeak
 
 The repo intentionally avoids user accounts and server-side identity state.
 
-## Voice debrief extension
+## Voice debrief
 
-No schema migration is needed.
-
-- `meta.voiceDebrief`: current local session (`id`, `title`, `transcript`, `sourceText`, `questions`, `draft`, `reviewedTranscript`, `saved`).
+- `meta.voiceDebrief` stores the current local debrief session.
 - Drafts contain a model summary, grounded step/failure/lesson arrays with `{text,evidence}`, suggestions, gaps, and one follow-up question.
-- `meta.voiceEndpoint`: optional voice service origin.
-- `meta.voiceSpeak`: spoken-question preference.
-- Neither API keys nor the service password are stored or exported.
-- Saved `capture`: original transcript, question history, generated record IDs, and source links.
-- Saved `note`: learner-reviewed model summary and quoted observations.
-- Saved `solve`: the generic study-session record, including quoted observations, original transcript, open questions, suggestions, review status, and provenance.
-
-The capture, note, study-session record, new references, and saved session marker are written atomically. Session-derived IDs keep retries idempotent. Export/import includes these records and metadata through the existing backup format.
-
-Source pages are not fetched and source claims are not independently verified.
+- `meta.voiceEndpoint` stores the optional voice-service origin.
+- `meta.voiceSpeak` stores the spoken-question preference.
+- API keys and the service password are not stored or exported.
+- Saving writes a `capture`, `note`, `session`, linked `source` records, and the saved session marker atomically.
+- Session-derived IDs make retries idempotent.
+- Source pages are not fetched and source claims are not independently verified.
