@@ -191,3 +191,38 @@ h2 { letter-spacing: -0.03em; }
   .record-date { white-space: normal; }
   .stats { grid-template-columns: 1fr 1fr; }
 }
+
+
+/* Voice debrief: a focused writing surface, using the ledger's existing theme. */
+.debrief-layout { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 32px; }
+.debrief-capture, .debrief-result { min-width: 0; }
+.debrief-topline, .debrief-result-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 24px; }
+.debrief-topline .badge { font-size: 12px; border-radius: 4px; }
+.debrief-capture > label, .debrief-connection label { display: block; margin: 20px 0 8px; font-size: 14px; }
+.debrief-capture input:not([type=checkbox]), .debrief-capture textarea { width: 100%; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); padding: 12px; font-size: 16px; line-height: 1.6; }
+.debrief-capture textarea { resize: vertical; }
+#voiceTranscript { min-height: 260px; }
+.debrief-actions { display: flex; gap: 12px; flex-wrap: wrap; margin: 14px 0; }
+.debrief-privacy, .debrief-status { font-size: 14px; color: #aab0ba; line-height: 1.6; margin: 12px 0; }
+.debrief-connection { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 16px 0; margin-top: 20px; }
+.debrief-connection summary { cursor: pointer; font-size: 14px; }
+.debrief-speak { display: flex !important; align-items: center; gap: 10px; }
+.debrief-speak input { accent-color: var(--accent); width: 18px; height: 18px; }
+.debrief-result { border-left: 1px solid var(--line); padding-left: 32px; }
+.debrief-result h2 { margin: 0; font-size: 24px; }
+.debrief-result-head .eyebrow { font-size: 12px; }
+.debrief-empty { padding: 60px 0; max-width: 350px; }
+.debrief-empty > span { color: var(--accent); font: 12px ui-monospace,monospace; letter-spacing: .08em; }
+.debrief-empty h3 { font-size: 32px; letter-spacing: -.04em; margin: 20px 0 12px; }
+.debrief-empty p { color: var(--muted); font-size: 16px; line-height: 1.7; }
+.debrief-section { border-bottom: 1px solid var(--line); padding: 20px 0; }
+.debrief-section h3 { font-size: 14px; color: var(--muted); margin-bottom: 12px; }
+.debrief-section p, .debrief-section li { line-height: 1.7; font-size: 16px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.debrief-section blockquote { border-left: 2px solid var(--line-strong); padding: 0 0 0 14px; margin: 10px 0 20px; color: var(--muted); font-size: 14px; line-height: 1.7; overflow-wrap: anywhere; }
+.debrief-question { border-left: 2px solid var(--accent); background: var(--accent-soft); padding: 20px; }
+.debrief-question p { font-size: 18px; line-height: 1.6; margin-bottom: 8px; }
+.debrief-question > span:last-child { font-size: 14px; color: var(--muted); }
+button:disabled { opacity: .5; cursor: not-allowed; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media(max-width: 850px) { .debrief-layout { grid-template-columns: 1fr; gap: 24px; } .debrief-result { border-left: 0; border-top: 1px solid var(--line); padding: 24px 0 0; } .debrief-empty { padding: 20px 0; } .tabs { overflow-x: auto; max-width: 100%; } }
+@media(prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }

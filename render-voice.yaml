@@ -1,0 +1,18 @@
+# Optional full application + voice service. Existing render.yaml stays static.
+services:
+  - type: web
+    runtime: node
+    name: security-ledger-voice
+    plan: free
+    buildCommand: echo "No dependencies to install"
+    startCommand: node server.mjs
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: ASSEMBLYAI_API_KEY
+        sync: false
+      - key: APP_ACCESS_TOKEN
+        generateValue: true
+      - key: ASSEMBLYAI_LLM_MODEL
+        value: qwen3.5-4b-32k-fast
