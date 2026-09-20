@@ -145,16 +145,16 @@ function renderStats() {
   $('stats').innerHTML = [
     ['Inbox', counts.inbox],
     ['Notes', counts.knowledge],
-    ['Challenges', counts.challenges],
+    ['Practice', counts.challenges],
     ['Sources', counts.sources],
   ].map(([label, value]) => `<div class="stat"><strong>${value}</strong><span>${label}</span></div>`).join('');
 }
 
 const viewMeta = {
-  debrief: ['Voice study session', 'Debrief'],
+  debrief: ['Guided study session', 'Debrief'],
   inbox: ['Staging queue', 'Inbox'],
-  knowledge: ['Structured memory', 'Knowledge'],
-  challenges: ['Practice ledger', 'Challenges'],
+  knowledge: ['Structured memory', 'Notes'],
+  challenges: ['Practice ledger', 'Practice'],
   sources: ['Evidence trail', 'Sources'],
 };
 
@@ -186,11 +186,11 @@ function renderInbox() {
     <p>Paste notes, narrate a thought, attach screenshots or files, and add the source URL if there is one. The agent can turn these captures into structured records through WebMCP.</p>
     <form id="captureForm">
       <div class="capture-grid">
-        <textarea id="captureText" name="text" placeholder="Narration, rough notes, CTF observations, copied documentation…" required></textarea>
+        <textarea id="captureText" name="text" placeholder="Narration, lecture notes, lab observations, worked problems, copied documentation…" required></textarea>
         <div class="capture-side">
           <input id="captureTitle" name="title" placeholder="Optional title" />
           <input id="captureUrl" name="url" type="url" placeholder="Source URL" />
-          <input id="captureDomain" name="domain" placeholder="Domain e.g. web, AD, reversing" />
+          <input id="captureDomain" name="domain" placeholder="Subject e.g. calculus, web security, biology" />
           <input id="captureTags" name="tags" placeholder="Tags, comma separated" />
           <label class="file-field">Attachments <input id="captureFiles" type="file" multiple /></label>
         </div>
@@ -215,10 +215,10 @@ function renderKnowledge() {
 function renderChallenges() {
   const challenges = records.filter((record) => record.type === 'challenge' && matchesSearch(record));
   const solves = records.filter((record) => record.type === 'solve' && matchesSearch(record));
-  return `<div class="section-head"><h2>Challenges</h2><span>${challenges.length}</span></div>
-    <div class="list">${challenges.length ? challenges.map((record) => card(record, [record.platform, record.category, record.objective].filter(Boolean).join(' · '))).join('') : emptyState('No challenge records yet.')}</div>
-    <div class="section-head"><h2>Recorded solves</h2><span>${solves.length}</span></div>
-    <div class="list">${solves.length ? solves.map((record) => card(record, record.overview || (record.lessons || []).join(' '))).join('') : emptyState('No solve records yet.')}</div>`;
+  return `<div class="section-head"><h2>Practice items</h2><span>${challenges.length}</span></div>
+    <div class="list">${challenges.length ? challenges.map((record) => card(record, [record.platform, record.category, record.objective].filter(Boolean).join(' · '))).join('') : emptyState('No practice items yet.')}</div>
+    <div class="section-head"><h2>Study sessions</h2><span>${solves.length}</span></div>
+    <div class="list">${solves.length ? solves.map((record) => card(record, record.overview || (record.lessons || []).join(' '))).join('') : emptyState('No study sessions yet.')}</div>`;
 }
 
 function renderSources() {
@@ -290,13 +290,13 @@ function renderRecordBody(record) {
   if (record.type === 'note') {
     return textSection('Summary', record.summary)
       + textSection('Abstraction', record.abstraction)
-      + textSection('Technical notes', record.content)
+      + textSection('Detailed notes', record.content)
       + listSection('Patterns', record.patterns || [])
       + listSection('Commands / syntax', record.commands || [], false, true)
       + shared;
   }
   if (record.type === 'challenge') {
-    return textSection('Platform', record.platform)
+    return textSection('Course / platform', record.platform)
       + textSection('Category', record.category)
       + textSection('Difficulty', record.difficulty)
       + textSection('Status', record.status)
@@ -307,7 +307,7 @@ function renderRecordBody(record) {
   }
   if (record.type === 'solve') {
     const challenge = byId(record.challengeId || record.challenge_id);
-    return textSection('Challenge', challenge?.title || record.challengeId || record.challenge_id)
+    return textSection('Practice item', challenge?.title || record.challengeId || record.challenge_id)
       + textSection('Overview', record.overview)
       + listSection('Steps', record.steps || [], true)
       + listSection('Commands', record.commands || [], false, true)
@@ -482,7 +482,7 @@ async function upsertChallenge({ challenge }) {
   const existing = challenge.id ? byId(challenge.id) : null;
   const record = commonRecord({
     ...challenge,
-    title: challenge.title || existing?.title || 'Untitled challenge',
+    title: challenge.title || existing?.title || 'Untitled practice item',
     platform: challenge.platform || existing?.platform || '',
     url: challenge.url || existing?.url || '',
     category: challenge.category || existing?.category || '',
@@ -504,7 +504,7 @@ async function recordSolve({ solve }) {
   const challenge = challengeId ? byId(challengeId) : null;
   const record = commonRecord({
     ...solve,
-    title: solve.title || existing?.title || (challenge ? `${challenge.title} — solve` : 'Solve record'),
+    title: solve.title || existing?.title || (challenge ? `${challenge.title} — session` : 'Study session'),
     challengeId,
     overview: solve.overview || existing?.overview || '',
     steps: Array.isArray(solve.steps) ? solve.steps : (existing?.steps || []),
@@ -603,22 +603,29 @@ async function registerWebMcp() {
 
   const tools = [
     {
+      name: 'get_study_state',
+      description: 'Read Study Ledger totals, recent records, or records of a specific type across any subject.',
+      inputSchema: { type: 'object', properties: { scope: { type: 'string' }, limit: { type: 'number' } } },
+      annotations: { readOnlyHint: true },
+      execute: async (input = {}) => toolResult(getSecurityState(input)),
+    },
+    {
       name: 'get_security_state',
-      description: 'Read Security Ledger totals, recent records, or records of a specific type. This is persistent local study memory, not an automated exploit engine.',
+      description: 'Backward-compatible alias for the study ledger state. Read totals, recent records, or records of a specific type.',
       inputSchema: { type: 'object', properties: { scope: { type: 'string' }, limit: { type: 'number' } } },
       annotations: { readOnlyHint: true },
       execute: async (input = {}) => toolResult(getSecurityState(input)),
     },
     {
       name: 'get_inbox',
-      description: 'Read raw material staged by the user for later structuring. Use this before creating notes, sources, challenge records, or solve records from captured material.',
+      description: 'Read raw material staged by the learner for later structuring. Use this before creating notes, sources, practice items, or study-session records from captured material.',
       inputSchema: { type: 'object', properties: { status: { type: 'string', enum: ['unprocessed', 'processed', 'all'] }, limit: { type: 'number' } } },
       annotations: { readOnlyHint: true },
       execute: async (input = {}) => toolResult(getInbox(input)),
     },
     {
       name: 'search_knowledge',
-      description: 'Search structured notes, sources, challenges, and solve records. Prefer conceptual retrieval and high-level guidance instead of directly solving active challenges for the user.',
+      description: 'Search structured notes, sources, practice items, and study-session records across any subject. CTFs and labs remain supported practice contexts.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -654,24 +661,38 @@ async function registerWebMcp() {
     },
     {
       name: 'upsert_note',
-      description: 'Create or update a structured technical note. Keep abstraction, summary, technical detail, patterns, commands, and source IDs distinct when possible.',
+      description: 'Create or update a structured study note. Keep summary, abstraction, detail, patterns, useful syntax or commands, and source IDs distinct when possible.',
       inputSchema: { type: 'object', properties: { note: { type: 'object', additionalProperties: true } }, required: ['note'] },
       annotations: { readOnlyHint: false },
       execute: async (input) => toolResult(await upsertNote(input)),
     },
     {
       name: 'upsert_challenge',
-      description: 'Create or update a CTF/lab/practice challenge record. Domains and categories are open-ended and are not limited to OWASP.',
+      description: 'Create or update a practice item such as a problem, lab, exercise, assignment task, CTF challenge, or revision objective. Stored as the legacy challenge type for compatibility.',
       inputSchema: { type: 'object', properties: { challenge: { type: 'object', additionalProperties: true } }, required: ['challenge'] },
       annotations: { readOnlyHint: false },
       execute: async (input) => toolResult(await upsertChallenge(input)),
     },
     {
       name: 'record_solve',
-      description: 'Create or update a completed or evolving solve record, including steps, commands, payloads, failed attempts, artifacts, lessons, and sources.',
+      description: 'Create or update a study or practice session, including steps, attempts, lessons, sources, and optional technical commands, payloads, or artifacts. Stored as the legacy solve type for compatibility.',
       inputSchema: { type: 'object', properties: { solve: { type: 'object', additionalProperties: true } }, required: ['solve'] },
       annotations: { readOnlyHint: false },
       execute: async (input) => toolResult(await recordSolve(input)),
+    },
+    {
+      name: 'upsert_practice',
+      description: 'Generic alias for creating or updating a practice item. The record is stored with the legacy challenge type so existing data and tools remain compatible.',
+      inputSchema: { type: 'object', properties: { practice: { type: 'object', additionalProperties: true } }, required: ['practice'] },
+      annotations: { readOnlyHint: false },
+      execute: async (input) => toolResult(await upsertChallenge({ challenge: input.practice })),
+    },
+    {
+      name: 'record_study_session',
+      description: 'Generic alias for creating or updating a study, revision, problem-solving, lab, or CTF session. The record is stored with the legacy solve type for compatibility.',
+      inputSchema: { type: 'object', properties: { session: { type: 'object', additionalProperties: true } }, required: ['session'] },
+      annotations: { readOnlyHint: false },
+      execute: async (input) => toolResult(await recordSolve({ solve: input.session })),
     },
     {
       name: 'mark_inbox_processed',
@@ -761,7 +782,7 @@ function bindUi() {
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `security-ledger-${new Date().toISOString().slice(0, 10)}.json`;
+    link.download = `study-ledger-${new Date().toISOString().slice(0, 10)}.json`;
     link.click();
     URL.revokeObjectURL(link.href);
   });
@@ -790,7 +811,7 @@ function bindUi() {
   });
 
   $('resetButton').addEventListener('click', () => {
-    if (!confirm('Permanently delete the entire local Security Ledger?')) return;
+    if (!confirm('Permanently delete the entire local Study Ledger?')) return;
     db.close();
     const request = indexedDB.deleteDatabase(DB_NAME);
     request.onsuccess = () => location.reload();
@@ -812,7 +833,7 @@ async function start() {
   render();
   registerWebMcp();
 
-  window.SecurityLedger = {
+  const ledgerApi = {
     get records() { return records.map(sanitizeForAgent); },
     createCapture,
     upsertSource,
@@ -821,15 +842,20 @@ async function start() {
     recordSolve,
     markInboxProcessed,
     linkRecords,
+    getStudyState: getSecurityState,
     getSecurityState,
+    upsertPractice: (practice) => upsertChallenge({ challenge: practice?.practice || practice }),
+    recordStudySession: (session) => recordSolve({ solve: session?.session || session }),
     getInbox,
     searchKnowledge,
     deleteRecord,
   };
+  window.StudyLedger = ledgerApi;
+  window.SecurityLedger = ledgerApi;
 }
 
 start().catch((error) => {
   console.error(error);
   $('appError').hidden = false;
-  $('appError').textContent = `Could not load Security Ledger: ${error.message}`;
+  $('appError').textContent = `Could not load Study Ledger: ${error.message}`;
 });

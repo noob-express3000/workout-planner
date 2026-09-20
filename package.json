@@ -1,5 +1,5 @@
 {
-  "name": "security-ledger",
+  "name": "study-ledger",
   "private": true,
   "type": "module",
   "engines": { "node": ">=22" },

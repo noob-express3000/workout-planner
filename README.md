@@ -1,60 +1,73 @@
-# Security Ledger
+# Study Ledger
 
-Security Ledger is a local browser application for storing security study material, challenge records, sources, and solve history.
+Study Ledger is a local-first universal study workspace. It stores raw captures, structured notes, sources, practice items, and study-session history in the browser.
 
-The website stores data locally. The optional AssemblyAI debrief interviews you about a CTF walkthrough and drafts linked notes. An external AI agent can also read and update the ledger through WebMCP.
+The optional AssemblyAI debrief lets a learner explain what they are studying by voice or text, receive focused follow-up questions, and review an evidence-backed draft before saving. An external AI agent can also read and update the ledger through WebMCP.
 
-## Workflow
+Cybersecurity remains a first-class use case, including OWASP study, labs, and CTF walkthroughs, but the workflow is intentionally subject-agnostic.
 
-1. Add raw material to Inbox.
-2. Have the agent convert it into structured notes, sources, challenge records, or solve records.
-3. Search and reuse those records during later study and practice.
+## Core workflow
 
-OWASP Top 10 is an initial focus, but the data model supports other security domains.
+1. Capture material in **Inbox**: narration, lecture notes, documentation, screenshots, URLs, worked problems, lab observations, or rough thoughts.
+2. Use the agent or the built-in **Debrief** to turn that material into structured notes, sources, practice items, and study-session records.
+3. Search and reuse the stored material during later study, revision, practice, or problem-solving.
+4. Preserve the original evidence and source links so generated summaries remain reviewable.
+
+The site is a persistent control surface and structured memory layer. It is not intended to replace the learner's reasoning.
 
 ## Interface
 
-- **Debrief** — AssemblyAI live narration, follow-up questions, evidence-backed draft review, and local saving.
-- **Inbox** — raw notes, URLs, screenshots, and files.
-- **Notes** — structured technical notes.
-- **Challenges** — challenge metadata and solve records.
-- **Sources** — references used by notes and solves.
+- **Debrief** — AssemblyAI live narration, focused follow-up questions, evidence-backed draft review, and local saving.
+- **Inbox** — raw notes, URLs, screenshots, files, and narrated material.
+- **Notes** — structured study memory.
+- **Practice** — problems, labs, exercises, assignments, revision objectives, CTF challenges, and the sessions linked to them.
+- **Sources** — references used by notes and sessions.
 
-The site is intended to minimize manual data entry. WebMCP is used for most structured population.
+## Storage and compatibility
 
-## Storage
+Data is stored locally in IndexedDB. Existing Security Ledger data remains compatible.
 
-Data is stored locally in IndexedDB.
-
-Record types:
+Record types are intentionally unchanged:
 
 - `capture`
 - `note`
 - `source`
-- `challenge`
-- `solve`
+- `challenge` — legacy storage name for a generic practice item
+- `solve` — legacy storage name for a generic study/practice session
 
-Solve records may contain steps, commands, payloads, failed attempts, lessons, artifacts, sources, challenge links, and completion time.
+Keeping these types avoids a migration that could orphan existing browser data. New records may include open-ended fields such as subject, course, activity type, formulas, commands, artifacts, or domain-specific metadata.
 
-Attachments are stored locally. WebMCP responses expose attachment metadata without sending the stored file data.
+Attachments are stored locally. WebMCP responses expose attachment metadata without sending stored file data.
 
 See [`DATA_MODEL.md`](./DATA_MODEL.md) for the schema.
 
 ## WebMCP tools
 
+Generic study-facing tools:
+
 ```text
-get_security_state
+get_study_state
 get_inbox
 search_knowledge
 capture_material
 upsert_source
 upsert_note
-upsert_challenge
-record_solve
+upsert_practice
+record_study_session
 mark_inbox_processed
 link_records
 delete_record
 ```
+
+Backward-compatible tools remain registered:
+
+```text
+get_security_state
+upsert_challenge
+record_solve
+```
+
+The generic aliases store data using the existing `challenge` and `solve` record types.
 
 ## Local behavior
 
@@ -63,9 +76,13 @@ delete_record
 - no account system
 - no cloud database
 - no API key required for the original ledger or WebMCP tools
-- optional debrief calls AssemblyAI through a small server; the permanent key never goes to the browser
+- optional AssemblyAI debrief through a small server; the permanent API key never goes to the browser
+- original captures and source links preserved alongside generated drafts
+- review-before-save for debrief output
 
 ## Run locally
+
+For the static ledger:
 
 ```bash
 python -m http.server 8080
@@ -73,32 +90,33 @@ python -m http.server 8080
 
 Open `http://localhost:8080`.
 
+For the AssemblyAI debrief, use Node.js 22+:
+
+1. Copy `.env.example` to `.env`.
+2. Set `ASSEMBLYAI_API_KEY` and a long random `APP_ACCESS_TOKEN`.
+3. Run `node --env-file=.env server.mjs`.
+4. Open `http://localhost:8080`.
+5. In **Debrief → Connection**, enter the service access password. Leave the service URL blank when the Node server hosts the page.
+
+Audio uses AssemblyAI streaming with a temporary token. The transcript and supplied source URLs are sent to AssemblyAI LLM Gateway for debriefing. Spoken follow-up questions use browser speech synthesis. The app does not record an audio file, fetch source pages, execute commands, or send the whole ledger to the model.
+
+Evidence quotes in generated drafts are checked against the learner's transcript. That verifies quote presence, not whether the model interpreted the quote correctly.
+
 ## Render
 
-`render.yaml` deploys the repository as a static site with no build step.
+- `render.yaml` deploys the original static ledger with no build step.
+- `render-voice.yaml` is the optional Node deployment for the AssemblyAI debrief.
 
-## AssemblyAI voice debrief
+The voice service keeps the permanent AssemblyAI key server-side, checks a private service password and allowed origin, limits request sizes/rates, and serves only an explicit public asset allowlist.
 
-Requires Node.js 22+, an AssemblyAI API key with streaming and LLM Gateway access, and a private service access password. No runtime packages are required.
+## Verification
 
-1. Copy `.env.example` to `.env` and fill in `ASSEMBLYAI_API_KEY` and `APP_ACCESS_TOKEN`. Use a long random password for the latter. Never commit `.env`.
-2. Run `node --env-file=.env server.mjs` and open `http://localhost:8080`.
-3. In **Debrief → Connection**, enter your service access password. Leave the URL blank when the server hosts the page. The password exists only in page memory.
-4. Record a walkthrough or paste text. **Stop & review** finalizes speech and requests a draft. The agent asks up to three follow-up questions; append or record answers and review again.
-5. Inspect the draft and use **Save to ledger**. One IndexedDB transaction saves the original capture, a note, a solve record, references, and session state. Saving does not assert that the challenge was completed.
+Run:
 
-Audio uses AssemblyAI streaming over a temporary token. Transcripts and supplied URLs go through AssemblyAI LLM Gateway. Spoken questions use browser speech synthesis. The app does not record an audio file, fetch source pages, run commands, or send your whole ledger to a model. Source URLs are references supplied by you. Evidence quotes are checked against the transcript; this checks quote presence, not the correctness of the model's interpretation.
+```bash
+npm test
+```
 
-The LLM model is configurable with `ASSEMBLYAI_LLM_MODEL`; the default follows AssemblyAI's current quickstart. Account access and credits must be checked before recording a submission demo. There is no simulated AI fallback in production.
+The automated tests mock provider responses. Live AssemblyAI streaming, LLM model access, microphone permissions, Android audio behavior, and the full spoken loop still require real credentials and physical-device validation.
 
-### Hosting the optional service
-
-`render-voice.yaml` is a separate Render Blueprint for the complete Node application. Add your AssemblyAI key in the service environment and obtain the generated `APP_ACCESS_TOKEN` from the service dashboard. It is separate from the existing static deployment; no service is provisioned merely by committing this file. The blueprint requests Render's free plan, subject to account availability and cold starts. AssemblyAI usage is billed by AssemblyAI.
-
-To keep using the existing static site, deploy the voice service, set `ALLOWED_ORIGIN` on that service to your static site's exact origin, then enter the service's HTTPS origin in **Connection**. Do not put the AssemblyAI API key in that field or the password field. The voice server serves only an explicit public asset allowlist, checks the service password and request origin, limits body size/concurrency/request rate, and never logs transcript or provider bodies. This is a private single-user prototype, not a multi-tenant authentication system.
-
-### Verification and remaining gates
-
-Run `npm test` for API contract, credential isolation, input validation, and transcript-grounding checks. See `TESTING.md` for voice and hardware checks. Live AssemblyAI transcription, model access, microphone permissions, Android audio behavior, and the complete spoken loop still require a real key and physical-device validation. This is the first implementation, not a submission-ready release.
-
-API references: [temporary tokens](https://www.assemblyai.com/docs/streaming/api-spec/generate-streaming-token), [streaming WebSocket](https://www.assemblyai.com/docs/streaming/api-spec/streaming-websocket), [LLM Gateway](https://www.assemblyai.com/docs/llm-gateway/quickstart).
+See [`TESTING.md`](./TESTING.md) for the complete checklist.

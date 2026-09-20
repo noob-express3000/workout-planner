@@ -21,7 +21,7 @@ function updateDebriefStatus() {
   if (!$('debriefStatus')) return;
   $('debriefStatus').textContent = debriefMessage || 'Draft kept in this browser.';
   const busy = debriefBusy();
-  $('voiceRecord').textContent = debriefPhase === 'recording' ? 'Stop & review' : debriefPhase === 'connecting' ? 'Connecting…' : 'Record walkthrough';
+  $('voiceRecord').textContent = debriefPhase === 'recording' ? 'Stop & review' : debriefPhase === 'connecting' ? 'Connecting…' : 'Record session';
   $('voiceRecord').disabled = busy && debriefPhase !== 'recording';
   $('voiceReview').disabled = busy || !sessionData().transcript.trim();
   $('voiceSave').disabled = busy || !sessionData().draft || sessionData().saved;
@@ -35,11 +35,11 @@ function renderDebrief() {
   return `<section class="debrief-layout">
     <div class="debrief-capture">
       <div class="debrief-topline"><span class="badge accent">AssemblyAI</span><button id="voiceNew" class="quiet-button" type="button">New session</button></div>
-      <label for="voiceTitle">Challenge or topic</label>
-      <input id="voiceTitle" maxlength="200" value="${esc(s.title)}" placeholder="Name your lab or challenge" />
-      <label for="voiceTranscript">Your walkthrough</label>
-      <textarea id="voiceTranscript" maxlength="24000" placeholder="What were you trying to do? What did you try, and what actually happened?">${esc(s.transcript)}</textarea>
-      <div class="debrief-actions"><button id="voiceRecord" type="button" class="primary-button">Record walkthrough</button><button id="voiceReview" type="button" class="secondary-button">Review text</button></div>
+      <label for="voiceTitle">Topic or task</label>
+      <input id="voiceTitle" maxlength="200" value="${esc(s.title)}" placeholder="Name the subject, problem, lab, or task" />
+      <label for="voiceTranscript">Your study session</label>
+      <textarea id="voiceTranscript" maxlength="24000" placeholder="What are you studying or practicing? Explain what you understood, tried, observed, and still find unclear.">${esc(s.transcript)}</textarea>
+      <div class="debrief-actions"><button id="voiceRecord" type="button" class="primary-button">Record session</button><button id="voiceReview" type="button" class="secondary-button">Review text</button></div>
       <p class="debrief-privacy">Recording sends audio to AssemblyAI. Review sends this transcript and your source URLs to its LLM Gateway. Saved records stay in this browser.</p>
       <label for="voiceSources">Sources <span class="muted">— one URL per line</span></label>
       <textarea id="voiceSources" rows="2" placeholder="https://…">${esc(s.sourceText)}</textarea>
@@ -53,18 +53,18 @@ function renderDebrief() {
       <p id="debriefStatus" class="debrief-status" role="status" aria-live="polite"></p>
     </div>
     <div class="debrief-result">
-      <div class="debrief-result-head"><div><p class="eyebrow">Review before saving</p><h2>Solve notes</h2></div><button id="voiceSave" class="secondary-button" type="button">${s.saved ? 'Saved' : 'Save to ledger'}</button></div>
+      <div class="debrief-result-head"><div><p class="eyebrow">Review before saving</p><h2>Study notes</h2></div><button id="voiceSave" class="secondary-button" type="button">${s.saved ? 'Saved' : 'Save to ledger'}</button></div>
       <div id="debriefDraft">${renderDebriefDraft()}</div>
     </div>
   </section>`;
 }
 function renderDebriefDraft() {
   const s = sessionData(), d = s.draft;
-  if (!d) return '<div class="debrief-empty"><span aria-hidden="true">01 / CAPTURE</span><h3>Keep the reasoning.</h3><p>Narrate or paste your walkthrough. The debrief asks about missing details and keeps the original evidence alongside your notes.</p></div>';
+  if (!d) return '<div class="debrief-empty"><span aria-hidden="true">01 / CAPTURE</span><h3>Keep the reasoning.</h3><p>Narrate or paste what you are studying. The debrief asks focused follow-ups and keeps the original evidence alongside your notes.</p></div>';
   const group = (label, items) => items.length ? `<section class="debrief-section"><h3>${label}</h3>${items.map(item => `<p>${esc(item.text)}</p><blockquote>${esc(item.evidence)}</blockquote>`).join('')}</section>` : '';
-  return `${d.question ? `<section class="debrief-question"><span class="eyebrow">Follow-up ${s.questions.length} / 3</span><p>${esc(d.question)}</p><span>Append your answer to the walkthrough, or record it.</span></section>` : ''}
+  return `${d.question ? `<section class="debrief-question"><span class="eyebrow">Follow-up ${s.questions.length} / 3</span><p>${esc(d.question)}</p><span>Append your answer to the session, or record it.</span></section>` : ''}
     <section class="debrief-section"><h3>Agent summary — review required</h3><p>${esc(d.summary)}</p></section>
-    ${group('Steps from your walkthrough', d.steps)}${group('Failed attempts', d.failedAttempts)}${group('Lessons you identified', d.lessons)}
+    ${group('Steps from your session', d.steps)}${group('Failed attempts', d.failedAttempts)}${group('Lessons you identified', d.lessons)}
     ${d.gaps.length ? `<section class="debrief-section"><h3>Still missing</h3><ul>${d.gaps.map(x => `<li>${esc(x)}</li>`).join('')}</ul></section>` : ''}
     ${d.suggestions.length ? `<section class="debrief-section"><h3>Agent suggestions — unverified</h3><ul>${d.suggestions.map(x => `<li>${esc(x)}</li>`).join('')}</ul></section>` : ''}
     <p class="debrief-privacy">Quotes are checked against your transcript. You still need to verify the interpretation. Sources are preserved as references; their pages are not fetched.</p>`;
@@ -113,7 +113,7 @@ async function reviewDebrief() {
   if (debriefBusy()) return;
   const s = sessionData();
   if (!s.transcript.trim()) return;
-  debriefPhase = 'reviewing'; debriefMessage = 'Reviewing your walkthrough…'; updateDebriefStatus();
+  debriefPhase = 'reviewing'; debriefMessage = 'Reviewing your study session…'; updateDebriefStatus();
   try {
     const { draft } = await debriefApi('/api/debrief', { transcript: s.transcript, title: s.title, sources: parseDebriefSources(s.sourceText), questions: s.questions });
     s.draft = draft; s.reviewedTranscript = s.transcript; s.saved = false;
@@ -134,7 +134,7 @@ async function releaseDebriefAudio() {
 }
 async function startDebriefRecording() {
   if (debriefBusy()) return;
-  if (!navigator.mediaDevices?.getUserMedia || !window.AudioContext || !window.AudioWorkletNode) { debriefMessage = 'Live narration needs a browser with microphone and AudioWorklet support over HTTPS. You can paste a walkthrough below.'; updateDebriefStatus(); return; }
+  if (!navigator.mediaDevices?.getUserMedia || !window.AudioContext || !window.AudioWorkletNode) { debriefMessage = 'Live narration needs a browser with microphone and AudioWorklet support over HTTPS. You can paste your study session below.'; updateDebriefStatus(); return; }
   debriefPhase = 'connecting'; debriefMessage = 'Allow microphone access to start narration.'; updateDebriefStatus();
   window.speechSynthesis?.cancel();
   const a = { turns: new Map(), prefix: sessionData().transcript.trim(), stopping: false, intentional: false };
@@ -182,10 +182,10 @@ async function startDebriefRecording() {
     };
     a.source.connect(a.worklet); a.worklet.connect(a.gain); a.gain.connect(a.context.destination);
     a.limit = setTimeout(stopDebriefRecording, 9 * 60 * 1000);
-    debriefPhase = 'recording'; debriefMessage = 'Listening through AssemblyAI. Stop when you are ready for the debrief.'; updateDebriefStatus();
+    debriefPhase = 'recording'; debriefMessage = 'Listening through AssemblyAI. Stop when you are ready for follow-up questions.'; updateDebriefStatus();
   } catch (error) {
     a.intentional = true; a.socket?.close(); await releaseDebriefAudio(); debriefAudio = null;
-    debriefPhase = 'idle'; debriefMessage = error.name === 'NotAllowedError' ? 'Microphone permission was denied. You can still type your walkthrough.' : error.message; updateDebriefStatus();
+    debriefPhase = 'idle'; debriefMessage = error.name === 'NotAllowedError' ? 'Microphone permission was denied. You can still type your study session.' : error.message; updateDebriefStatus();
   }
 }
 async function stopDebriefRecording() {
@@ -205,7 +205,7 @@ async function stopDebriefRecording() {
   }
   a.socket?.close(); debriefAudio = null; debriefPhase = 'idle'; persistDebrief();
   if (sessionData().transcript.trim()) await reviewDebrief();
-  else { debriefMessage = 'No speech was transcribed. Try again or type your walkthrough.'; updateDebriefStatus(); }
+  else { debriefMessage = 'No speech was transcribed. Try again or type your study session.'; updateDebriefStatus(); }
 }
 async function saveDebrief() {
   const s = sessionData(); if (debriefBusy() || !s.draft || s.saved) return;
@@ -222,7 +222,7 @@ async function saveDebrief() {
     const lines = items => items.map(x => `${x.text}\nEvidence: “${x.evidence}”`);
     batch.push(commonRecord({ id: captureId, title, rawText: s.transcript, status: 'processed', generatedRecordIds: [noteId, solveId, ...sourceIds], sourceIds, attachments: [], provider: 'AssemblyAI debrief', questions: s.questions }, 'capture'));
     batch.push(commonRecord({ id: noteId, title, summary: d.summary, content: [...lines(d.lessons), ...lines(d.steps)].join('\n\n'), sourceIds, relatedIds: [captureId, solveId], reviewStatus: 'User-reviewed AI draft', provenance: { captureId, provider: 'AssemblyAI LLM Gateway' } }, 'note'));
-    batch.push(commonRecord({ id: solveId, title: `${title} — debrief`, overview: d.summary, steps: lines(d.steps), failedAttempts: lines(d.failedAttempts), lessons: lines(d.lessons), sourceIds, relatedIds: [captureId, noteId], originalTranscript: s.transcript, openQuestions: [...d.gaps, ...(d.question ? [d.question] : [])], agentSuggestions: d.suggestions, reviewStatus: 'User-reviewed AI draft; completion not asserted', completedAt: '', provenance: { captureId, provider: 'AssemblyAI LLM Gateway' } }, 'solve'));
+    batch.push(commonRecord({ id: solveId, title: `${title} — session`, activityType: 'study-session', overview: d.summary, steps: lines(d.steps), failedAttempts: lines(d.failedAttempts), lessons: lines(d.lessons), sourceIds, relatedIds: [captureId, noteId], originalTranscript: s.transcript, openQuestions: [...d.gaps, ...(d.question ? [d.question] : [])], agentSuggestions: d.suggestions, reviewStatus: 'User-reviewed AI draft; completion not asserted', completedAt: '', provenance: { captureId, provider: 'AssemblyAI LLM Gateway' } }, 'solve'));
     const saved = { ...s, saved: true };
     await new Promise((resolve, reject) => {
       const tx = db.transaction(['records', 'meta'], 'readwrite');
@@ -230,7 +230,7 @@ async function saveDebrief() {
       tx.objectStore('meta').put({ key: 'voiceDebrief', value: saved });
       tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error);
     });
-    debriefState = saved; await loadModel(); debriefMessage = 'Saved: original capture, study note, solve record, and linked sources.';
+    debriefState = saved; await loadModel(); debriefMessage = 'Saved: original capture, study note, study-session record, and linked sources.';
   } catch (error) { debriefMessage = `Could not save: ${error.message}. Your draft is still available.`; }
   finally { debriefPhase = 'idle'; render(); }
 }

@@ -1,4 +1,4 @@
-# Security Ledger test checklist
+# Study Ledger test checklist
 
 ## AssemblyAI debrief
 
@@ -7,11 +7,11 @@ Automated checks: `npm test`. Provider responses in tests are mocked; passing te
 Before submission, use a configured Node voice service and test on Samsung and Itel:
 
 1. Enter the service password in Debrief → Connection. Check the connection, then review a typed lab walkthrough. Wrong passwords and missing configuration should show a useful error while preserving the transcript.
-2. Allow the microphone on HTTPS. Narrate an objective, action and observed result. Confirm live text, then select Stop & review. The microphone must stop before the follow-up is spoken.
+2. Allow the microphone on HTTPS. Narrate a goal, concept, reasoning step, action, or observed result. Confirm live text, then select Stop & review. The microphone must stop before the follow-up is spoken.
 3. Answer with a second recording. Earlier narration must remain, partial turn revisions must not duplicate text, and the agent must consider the follow-up history.
 4. Deny microphone permission, disconnect during recording, and try an expired/invalid key. Ensure the app returns to usable controls and retains partial text.
 5. Review quotes and suggestions. Editing the transcript must disable saving the old draft until it has been reviewed again. Missing details must remain open questions, not invented steps.
-6. Add source URLs; save. Confirm a capture, note, solve record and references; repeat save should not duplicate records. Sources must remain linked and agent suggestions visibly unverified.
+6. Add source URLs; save. Confirm a capture, note, study-session record and references; repeat save should not duplicate records. Sources must remain linked and agent suggestions visibly unverified.
 7. Reload mid-draft; confirm recovery. Export/import the ledger and confirm both saved records and the in-progress debrief survive. The service password must be absent from the backup and blank after reload.
 8. Confirm all original tabs and WebMCP tools still work. On narrow mobile viewports, controls must remain reachable without page-level horizontal scrolling.
 
@@ -41,7 +41,7 @@ If the browser does not expose Speech Recognition, the Narrate button should be 
 
 ## Search
 
-Populate several notes/challenges across different domains and tags.
+Populate several notes/practice items across different subjects, domains, and tags.
 
 Confirm the top search box filters the current view by:
 
@@ -57,8 +57,8 @@ Confirm the top search box filters the current view by:
 Verify:
 
 - notes show abstraction, technical notes, patterns, commands, and sources
-- challenges show platform/category/difficulty/status/objective
-- solves show steps, commands, payloads, failures, lessons, artifacts, and sources
+- practice items show course/platform, category, difficulty, status, and objective
+- study sessions show steps, attempts, lessons, sources, and any optional technical commands, payloads, or artifacts
 - sources open external URLs in a new tab
 - image attachments render in capture details
 
@@ -67,13 +67,16 @@ Verify:
 In a WebMCP-enabled agent browser, confirm registration of:
 
 ```text
+get_study_state
 get_security_state
 get_inbox
 search_knowledge
 capture_material
 upsert_source
 upsert_note
+upsert_practice
 upsert_challenge
+record_study_session
 record_solve
 mark_inbox_processed
 link_records
@@ -92,4 +95,15 @@ Suggested smoke sequence:
 
 ## Security / scope behavior
 
-The application itself must not claim to automatically solve a live challenge. WebMCP tool descriptions should preserve the intended tutoring boundary: retrieve concepts and prior work at high abstraction, while keeping the user responsible for the solve.
+The application should support study without taking over the learner's reasoning. For active assignments, labs, CTFs, or problem-solving, WebMCP descriptions should preserve the tutoring boundary while keeping the learner responsible for the work.
+
+
+## Universal-study smoke cases
+
+Use the same ledger without clearing data and confirm all three flows coexist:
+
+1. A nontechnical topic, such as summarizing a history reading with linked sources.
+2. A quantitative problem, such as narrating the reasoning for a calculus exercise and saving the session.
+3. A cybersecurity lab or CTF walkthrough using the existing technical fields, commands, artifacts, and source links.
+
+Existing `challenge` and `solve` records must remain visible after the interface rename to Practice and Study sessions.
