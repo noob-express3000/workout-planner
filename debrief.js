@@ -39,7 +39,7 @@ function renderDebrief() {
       <input id="voiceTitle" maxlength="200" value="${esc(s.title)}" placeholder="Name the subject, problem, lab, or task" />
       <label for="voiceTranscript">Your study session</label>
       <textarea id="voiceTranscript" maxlength="24000" placeholder="What are you studying or practicing? Explain what you understood, tried, observed, and still find unclear.">${esc(s.transcript)}</textarea>
-      <div class="debrief-actions"><button id="voiceRecord" type="button" class="primary-button">Record walkthrough</button><button id="voiceReview" type="button" class="secondary-button">Review text</button></div>
+      <div class="debrief-actions"><button id="voiceRecord" type="button" class="primary-button">Record session</button><button id="voiceReview" type="button" class="secondary-button">Review text</button></div>
       <p class="debrief-privacy">Recording sends audio to AssemblyAI. Review sends this transcript and your source URLs to its LLM Gateway. Saved records stay in this browser.</p>
       <label for="voiceSources">Sources <span class="muted">— one URL per line</span></label>
       <textarea id="voiceSources" rows="2" placeholder="https://…">${esc(s.sourceText)}</textarea>
@@ -62,7 +62,7 @@ function renderDebriefDraft() {
   const s = sessionData(), d = s.draft;
   if (!d) return '<div class="debrief-empty"><span aria-hidden="true">01 / CAPTURE</span><h3>Keep the reasoning.</h3><p>Narrate or paste what you are studying. The debrief asks focused follow-ups and keeps the original evidence alongside your notes.</p></div>';
   const group = (label, items) => items.length ? `<section class="debrief-section"><h3>${label}</h3>${items.map(item => `<p>${esc(item.text)}</p><blockquote>${esc(item.evidence)}</blockquote>`).join('')}</section>` : '';
-  return `${d.question ? `<section class="debrief-question"><span class="eyebrow">Follow-up ${s.questions.length} / 3</span><p>${esc(d.question)}</p><span>Append your answer to the walkthrough, or record it.</span></section>` : ''}
+  return `${d.question ? `<section class="debrief-question"><span class="eyebrow">Follow-up ${s.questions.length} / 3</span><p>${esc(d.question)}</p><span>Append your answer to the session, or record it.</span></section>` : ''}
     <section class="debrief-section"><h3>Agent summary — review required</h3><p>${esc(d.summary)}</p></section>
     ${group('Steps from your session', d.steps)}${group('Failed attempts', d.failedAttempts)}${group('Lessons you identified', d.lessons)}
     ${d.gaps.length ? `<section class="debrief-section"><h3>Still missing</h3><ul>${d.gaps.map(x => `<li>${esc(x)}</li>`).join('')}</ul></section>` : ''}
@@ -185,7 +185,7 @@ async function startDebriefRecording() {
     debriefPhase = 'recording'; debriefMessage = 'Listening through AssemblyAI. Stop when you are ready for follow-up questions.'; updateDebriefStatus();
   } catch (error) {
     a.intentional = true; a.socket?.close(); await releaseDebriefAudio(); debriefAudio = null;
-    debriefPhase = 'idle'; debriefMessage = error.name === 'NotAllowedError' ? 'Microphone permission was denied. You can still type your walkthrough.' : error.message; updateDebriefStatus();
+    debriefPhase = 'idle'; debriefMessage = error.name === 'NotAllowedError' ? 'Microphone permission was denied. You can still type your study session.' : error.message; updateDebriefStatus();
   }
 }
 async function stopDebriefRecording() {
