@@ -1,8 +1,8 @@
-# Optional full application + voice service. Existing render.yaml stays static.
+# Optional full application + voice service. render.yaml stays static.
 services:
   - type: web
     runtime: node
-    name: security-ledger-voice
+    name: study-ledger-voice
     plan: free
     buildCommand: echo "No dependencies to install"
     startCommand: node server.mjs

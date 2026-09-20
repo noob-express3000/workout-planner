@@ -1,6 +1,6 @@
-const DB_NAME = 'security-study-ledger';
+const DB_NAME = 'study-ledger';
 const DB_VERSION = 1;
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024;
 
 let db;
@@ -139,13 +139,15 @@ function renderStats() {
   const counts = {
     inbox: records.filter((record) => record.type === 'capture' && record.status !== 'processed').length,
     knowledge: recordsOf('note').length,
-    challenges: recordsOf('challenge').length,
+    practice: recordsOf('practice').length,
+    sessions: recordsOf('session').length,
     sources: recordsOf('source').length,
   };
   $('stats').innerHTML = [
     ['Inbox', counts.inbox],
     ['Notes', counts.knowledge],
-    ['Practice', counts.challenges],
+    ['Practice', counts.practice],
+    ['Sessions', counts.sessions],
     ['Sources', counts.sources],
   ].map(([label, value]) => `<div class="stat"><strong>${value}</strong><span>${label}</span></div>`).join('');
 }
@@ -154,7 +156,7 @@ const viewMeta = {
   debrief: ['Guided study session', 'Debrief'],
   inbox: ['Staging queue', 'Inbox'],
   knowledge: ['Structured memory', 'Notes'],
-  challenges: ['Practice ledger', 'Practice'],
+  practice: ['Practice ledger', 'Practice'],
   sources: ['Evidence trail', 'Sources'],
 };
 
@@ -212,13 +214,13 @@ function renderKnowledge() {
   return `<div class="list">${notes.length ? notes.map((record) => card(record, record.summary || record.abstraction || record.content)).join('') : emptyState('No structured notes yet. Ask the agent to process your inbox.')}</div>`;
 }
 
-function renderChallenges() {
-  const challenges = records.filter((record) => record.type === 'challenge' && matchesSearch(record));
-  const solves = records.filter((record) => record.type === 'solve' && matchesSearch(record));
-  return `<div class="section-head"><h2>Practice items</h2><span>${challenges.length}</span></div>
-    <div class="list">${challenges.length ? challenges.map((record) => card(record, [record.platform, record.category, record.objective].filter(Boolean).join(' · '))).join('') : emptyState('No practice items yet.')}</div>
-    <div class="section-head"><h2>Study sessions</h2><span>${solves.length}</span></div>
-    <div class="list">${solves.length ? solves.map((record) => card(record, record.overview || (record.lessons || []).join(' '))).join('') : emptyState('No study sessions yet.')}</div>`;
+function renderPractice() {
+  const practices = records.filter((record) => record.type === 'practice' && matchesSearch(record));
+  const sessions = records.filter((record) => record.type === 'session' && matchesSearch(record));
+  return `<div class="section-head"><h2>Practice items</h2><span>${practices.length}</span></div>
+    <div class="list">${practices.length ? practices.map((record) => card(record, [record.context, record.category, record.objective].filter(Boolean).join(' · '))).join('') : emptyState('No practice items yet.')}</div>
+    <div class="section-head"><h2>Study sessions</h2><span>${sessions.length}</span></div>
+    <div class="list">${sessions.length ? sessions.map((record) => card(record, record.overview || (record.lessons || []).join(' '))).join('') : emptyState('No study sessions yet.')}</div>`;
 }
 
 function renderSources() {
@@ -236,7 +238,7 @@ function render() {
     button.toggleAttribute('aria-current', active);
   });
   renderStats();
-  const renderers = { debrief: renderDebrief, inbox: renderInbox, knowledge: renderKnowledge, challenges: renderChallenges, sources: renderSources };
+  const renderers = { debrief: renderDebrief, inbox: renderInbox, knowledge: renderKnowledge, practice: renderPractice, sources: renderSources };
   $('content').innerHTML = renderers[activeView]();
   if (activeView === 'inbox') bindCaptureForm();
   if (activeView === 'debrief') bindDebrief();
@@ -295,21 +297,22 @@ function renderRecordBody(record) {
       + listSection('Commands / syntax', record.commands || [], false, true)
       + shared;
   }
-  if (record.type === 'challenge') {
-    return textSection('Course / platform', record.platform)
+  if (record.type === 'practice') {
+    return textSection('Context', record.context)
       + textSection('Category', record.category)
       + textSection('Difficulty', record.difficulty)
       + textSection('Status', record.status)
       + textSection('Objective', record.objective)
       + textSection('Notes', record.notes)
-      + listSection('Flags / markers', record.flags || [])
+      + listSection('Markers', record.markers || [])
       + shared;
   }
-  if (record.type === 'solve') {
-    const challenge = byId(record.challengeId || record.challenge_id);
-    return textSection('Practice item', challenge?.title || record.challengeId || record.challenge_id)
+  if (record.type === 'session') {
+    const practice = byId(record.practiceId || record.practice_id);
+    return textSection('Practice item', practice?.title || record.practiceId || record.practice_id)
       + textSection('Overview', record.overview)
       + listSection('Steps', record.steps || [], true)
+      + listSection('Methods / formulas', record.methods || [], false, true)
       + listSection('Commands', record.commands || [], false, true)
       + listSection('Payloads', record.payloads || [], false, true)
       + listSection('Failed attempts', record.failedAttempts || record.failed_attempts || [], true)
@@ -471,51 +474,53 @@ async function upsertNote({ note }) {
     patterns: Array.isArray(note.patterns) ? note.patterns : (existing?.patterns || []),
     commands: Array.isArray(note.commands) ? note.commands : (existing?.commands || []),
     sourceIds: Array.isArray(note.sourceIds || note.source_ids) ? (note.sourceIds || note.source_ids) : (existing?.sourceIds || []),
-    challengeIds: Array.isArray(note.challengeIds || note.challenge_ids) ? (note.challengeIds || note.challenge_ids) : (existing?.challengeIds || []),
+    practiceIds: Array.isArray(note.practiceIds || note.practice_ids) ? (note.practiceIds || note.practice_ids) : (existing?.practiceIds || []),
     relatedIds: Array.isArray(note.relatedIds || note.related_ids) ? (note.relatedIds || note.related_ids) : (existing?.relatedIds || []),
   }, 'note', existing);
   return saveRecord(record);
 }
 
-async function upsertChallenge({ challenge }) {
-  if (!challenge || typeof challenge !== 'object') throw new Error('challenge is required.');
-  const existing = challenge.id ? byId(challenge.id) : null;
+async function upsertPractice({ practice }) {
+  if (!practice || typeof practice !== 'object') throw new Error('practice is required.');
+  const existing = practice.id ? byId(practice.id) : null;
   const record = commonRecord({
-    ...challenge,
-    title: challenge.title || existing?.title || 'Untitled practice item',
-    platform: challenge.platform || existing?.platform || '',
-    url: challenge.url || existing?.url || '',
-    category: challenge.category || existing?.category || '',
-    difficulty: challenge.difficulty || existing?.difficulty || '',
-    status: challenge.status || existing?.status || 'active',
-    objective: challenge.objective || existing?.objective || '',
-    notes: challenge.notes || existing?.notes || '',
-    flags: Array.isArray(challenge.flags) ? challenge.flags : (existing?.flags || []),
-    sourceIds: Array.isArray(challenge.sourceIds || challenge.source_ids) ? (challenge.sourceIds || challenge.source_ids) : (existing?.sourceIds || []),
-  }, 'challenge', existing);
+    ...practice,
+    title: practice.title || existing?.title || 'Untitled practice item',
+    context: practice.context || existing?.context || '',
+    url: practice.url || existing?.url || '',
+    category: practice.category || existing?.category || '',
+    difficulty: practice.difficulty || existing?.difficulty || '',
+    status: practice.status || existing?.status || 'active',
+    objective: practice.objective || existing?.objective || '',
+    notes: practice.notes || existing?.notes || '',
+    markers: Array.isArray(practice.markers) ? practice.markers : (existing?.markers || []),
+    sourceIds: Array.isArray(practice.sourceIds || practice.source_ids) ? (practice.sourceIds || practice.source_ids) : (existing?.sourceIds || []),
+  }, 'practice', existing);
   return saveRecord(record);
 }
 
-async function recordSolve({ solve }) {
-  if (!solve || typeof solve !== 'object') throw new Error('solve is required.');
-  const challengeId = solve.challengeId || solve.challenge_id || null;
-  if (challengeId && byId(challengeId)?.type !== 'challenge') throw new Error('challengeId must identify an existing challenge.');
-  const existing = solve.id ? byId(solve.id) : null;
-  const challenge = challengeId ? byId(challengeId) : null;
+async function recordStudySession({ session }) {
+  if (!session || typeof session !== 'object') throw new Error('session is required.');
+  const practiceId = session.practiceId || session.practice_id || null;
+  if (practiceId && byId(practiceId)?.type !== 'practice') throw new Error('practiceId must identify an existing practice item.');
+  const existing = session.id ? byId(session.id) : null;
+  const practice = practiceId ? byId(practiceId) : null;
   const record = commonRecord({
-    ...solve,
-    title: solve.title || existing?.title || (challenge ? `${challenge.title} — session` : 'Study session'),
-    challengeId,
-    overview: solve.overview || existing?.overview || '',
-    steps: Array.isArray(solve.steps) ? solve.steps : (existing?.steps || []),
-    commands: Array.isArray(solve.commands) ? solve.commands : (existing?.commands || []),
-    payloads: Array.isArray(solve.payloads) ? solve.payloads : (existing?.payloads || []),
-    failedAttempts: Array.isArray(solve.failedAttempts || solve.failed_attempts) ? (solve.failedAttempts || solve.failed_attempts) : (existing?.failedAttempts || []),
-    lessons: Array.isArray(solve.lessons) ? solve.lessons : (existing?.lessons || []),
-    artifacts: Array.isArray(solve.artifacts) ? solve.artifacts : (existing?.artifacts || []),
-    sourceIds: Array.isArray(solve.sourceIds || solve.source_ids) ? (solve.sourceIds || solve.source_ids) : (existing?.sourceIds || []),
-    completedAt: solve.completedAt || solve.completed_at || existing?.completedAt || nowIso(),
-  }, 'solve', existing);
+    ...session,
+    title: session.title || existing?.title || (practice ? `${practice.title} — session` : 'Study session'),
+    practiceId,
+    activityType: session.activityType || session.activity_type || existing?.activityType || 'study-session',
+    overview: session.overview || existing?.overview || '',
+    steps: Array.isArray(session.steps) ? session.steps : (existing?.steps || []),
+    methods: Array.isArray(session.methods) ? session.methods : (existing?.methods || []),
+    commands: Array.isArray(session.commands) ? session.commands : (existing?.commands || []),
+    payloads: Array.isArray(session.payloads) ? session.payloads : (existing?.payloads || []),
+    failedAttempts: Array.isArray(session.failedAttempts || session.failed_attempts) ? (session.failedAttempts || session.failed_attempts) : (existing?.failedAttempts || []),
+    lessons: Array.isArray(session.lessons) ? session.lessons : (existing?.lessons || []),
+    artifacts: Array.isArray(session.artifacts) ? session.artifacts : (existing?.artifacts || []),
+    sourceIds: Array.isArray(session.sourceIds || session.source_ids) ? (session.sourceIds || session.source_ids) : (existing?.sourceIds || []),
+    completedAt: session.completedAt || session.completed_at || existing?.completedAt || '',
+  }, 'session', existing);
   return saveRecord(record);
 }
 
@@ -526,20 +531,20 @@ async function markInboxProcessed({ capture_id, generated_record_ids = [] }) {
   return saveRecord(updated);
 }
 
-async function linkRecords({ record_id, source_ids, challenge_ids, related_ids }) {
+async function linkRecords({ record_id, source_ids, practice_ids, related_ids }) {
   const record = byId(record_id);
   if (!record) throw new Error('record_id not found.');
   const updated = {
     ...record,
     sourceIds: source_ids ? [...new Set(source_ids)] : (record.sourceIds || []),
-    challengeIds: challenge_ids ? [...new Set(challenge_ids)] : (record.challengeIds || []),
+    practiceIds: practice_ids ? [...new Set(practice_ids)] : (record.practiceIds || []),
     relatedIds: related_ids ? [...new Set(related_ids)] : (record.relatedIds || []),
     updatedAt: nowIso(),
   };
   return saveRecord(updated);
 }
 
-function getSecurityState({ scope = 'summary', limit = 100 } = {}) {
+function getStudyState({ scope = 'summary', limit = 100 } = {}) {
   const safeLimit = Math.max(1, Math.min(1000, Number(limit) || 100));
   if (scope === 'full') return { schemaVersion: SCHEMA_VERSION, records: records.slice(0, safeLimit).map(sanitizeForAgent) };
   if (scope === 'summary') {
@@ -548,8 +553,8 @@ function getSecurityState({ scope = 'summary', limit = 100 } = {}) {
       totals: {
         inboxPending: records.filter((record) => record.type === 'capture' && record.status !== 'processed').length,
         notes: recordsOf('note').length,
-        challenges: recordsOf('challenge').length,
-        solves: recordsOf('solve').length,
+        practice: recordsOf('practice').length,
+        sessions: recordsOf('session').length,
         sources: recordsOf('source').length,
       },
       recent: records.slice(0, Math.min(safeLimit, 25)).map(sanitizeForAgent),
@@ -607,30 +612,23 @@ async function registerWebMcp() {
       description: 'Read Study Ledger totals, recent records, or records of a specific type across any subject.',
       inputSchema: { type: 'object', properties: { scope: { type: 'string' }, limit: { type: 'number' } } },
       annotations: { readOnlyHint: true },
-      execute: async (input = {}) => toolResult(getSecurityState(input)),
-    },
-    {
-      name: 'get_security_state',
-      description: 'Backward-compatible alias for the study ledger state. Read totals, recent records, or records of a specific type.',
-      inputSchema: { type: 'object', properties: { scope: { type: 'string' }, limit: { type: 'number' } } },
-      annotations: { readOnlyHint: true },
-      execute: async (input = {}) => toolResult(getSecurityState(input)),
+      execute: async (input = {}) => toolResult(getStudyState(input)),
     },
     {
       name: 'get_inbox',
-      description: 'Read raw material staged by the learner for later structuring. Use this before creating notes, sources, practice items, or study-session records from captured material.',
+      description: 'Read raw material staged by the learner for later structuring.',
       inputSchema: { type: 'object', properties: { status: { type: 'string', enum: ['unprocessed', 'processed', 'all'] }, limit: { type: 'number' } } },
       annotations: { readOnlyHint: true },
       execute: async (input = {}) => toolResult(getInbox(input)),
     },
     {
       name: 'search_knowledge',
-      description: 'Search structured notes, sources, practice items, and study-session records across any subject. CTFs and labs remain supported practice contexts.',
+      description: 'Search structured notes, sources, practice items, and study sessions across any subject.',
       inputSchema: {
         type: 'object',
         properties: {
           query: { type: 'string' },
-          types: { type: 'array', items: { type: 'string', enum: ['note', 'source', 'challenge', 'solve'] } },
+          types: { type: 'array', items: { type: 'string', enum: ['note', 'source', 'practice', 'session'] } },
           domains: { type: 'array', items: { type: 'string' } },
           limit: { type: 'number' },
         },
@@ -640,7 +638,7 @@ async function registerWebMcp() {
     },
     {
       name: 'capture_material',
-      description: 'Stage raw text or a URL in the inbox. Use when information should be preserved before it is fully structured.',
+      description: 'Stage raw text or a URL in the inbox before it is fully structured.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -654,45 +652,31 @@ async function registerWebMcp() {
     },
     {
       name: 'upsert_source',
-      description: 'Create or update a source record so derived notes and solves retain an evidence trail.',
+      description: 'Create or update a source so derived study records keep an evidence trail.',
       inputSchema: { type: 'object', properties: { source: { type: 'object', additionalProperties: true } }, required: ['source'] },
       annotations: { readOnlyHint: false },
       execute: async (input) => toolResult(await upsertSource(input)),
     },
     {
       name: 'upsert_note',
-      description: 'Create or update a structured study note. Keep summary, abstraction, detail, patterns, useful syntax or commands, and source IDs distinct when possible.',
+      description: 'Create or update a structured study note.',
       inputSchema: { type: 'object', properties: { note: { type: 'object', additionalProperties: true } }, required: ['note'] },
       annotations: { readOnlyHint: false },
       execute: async (input) => toolResult(await upsertNote(input)),
     },
     {
-      name: 'upsert_challenge',
-      description: 'Create or update a practice item such as a problem, lab, exercise, assignment task, CTF challenge, or revision objective. Stored as the legacy challenge type for compatibility.',
-      inputSchema: { type: 'object', properties: { challenge: { type: 'object', additionalProperties: true } }, required: ['challenge'] },
-      annotations: { readOnlyHint: false },
-      execute: async (input) => toolResult(await upsertChallenge(input)),
-    },
-    {
-      name: 'record_solve',
-      description: 'Create or update a study or practice session, including steps, attempts, lessons, sources, and optional technical commands, payloads, or artifacts. Stored as the legacy solve type for compatibility.',
-      inputSchema: { type: 'object', properties: { solve: { type: 'object', additionalProperties: true } }, required: ['solve'] },
-      annotations: { readOnlyHint: false },
-      execute: async (input) => toolResult(await recordSolve(input)),
-    },
-    {
       name: 'upsert_practice',
-      description: 'Generic alias for creating or updating a practice item. The record is stored with the legacy challenge type so existing data and tools remain compatible.',
+      description: 'Create or update a practice item such as a problem, lab, exercise, assignment task, revision objective, experiment, or CTF challenge.',
       inputSchema: { type: 'object', properties: { practice: { type: 'object', additionalProperties: true } }, required: ['practice'] },
       annotations: { readOnlyHint: false },
-      execute: async (input) => toolResult(await upsertChallenge({ challenge: input.practice })),
+      execute: async (input) => toolResult(await upsertPractice(input)),
     },
     {
       name: 'record_study_session',
-      description: 'Generic alias for creating or updating a study, revision, problem-solving, lab, or CTF session. The record is stored with the legacy solve type for compatibility.',
+      description: 'Create or update a study, revision, problem-solving, lab, experiment, or CTF session.',
       inputSchema: { type: 'object', properties: { session: { type: 'object', additionalProperties: true } }, required: ['session'] },
       annotations: { readOnlyHint: false },
-      execute: async (input) => toolResult(await recordSolve({ solve: input.session })),
+      execute: async (input) => toolResult(await recordStudySession(input)),
     },
     {
       name: 'mark_inbox_processed',
@@ -707,13 +691,13 @@ async function registerWebMcp() {
     },
     {
       name: 'link_records',
-      description: 'Attach sources, challenges, or related records to an existing record without rewriting its content.',
+      description: 'Attach sources, practice items, or related records to an existing record without rewriting its content.',
       inputSchema: {
         type: 'object',
         properties: {
           record_id: { type: 'string' },
           source_ids: { type: 'array', items: { type: 'string' } },
-          challenge_ids: { type: 'array', items: { type: 'string' } },
+          practice_ids: { type: 'array', items: { type: 'string' } },
           related_ids: { type: 'array', items: { type: 'string' } },
         },
         required: ['record_id'],
@@ -838,20 +822,16 @@ async function start() {
     createCapture,
     upsertSource,
     upsertNote,
-    upsertChallenge,
-    recordSolve,
+    upsertPractice,
+    recordStudySession,
     markInboxProcessed,
     linkRecords,
-    getStudyState: getSecurityState,
-    getSecurityState,
-    upsertPractice: (practice) => upsertChallenge({ challenge: practice?.practice || practice }),
-    recordStudySession: (session) => recordSolve({ solve: session?.session || session }),
+    getStudyState,
     getInbox,
     searchKnowledge,
     deleteRecord,
   };
   window.StudyLedger = ledgerApi;
-  window.SecurityLedger = ledgerApi;
 }
 
 start().catch((error) => {
