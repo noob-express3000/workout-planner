@@ -4,46 +4,38 @@ Study Ledger is a local-first universal study workspace. It stores raw captures,
 
 The optional AssemblyAI debrief lets a learner explain what they are studying by voice or text, receive focused follow-up questions, and review an evidence-backed draft before saving. An external AI agent can also read and update the ledger through WebMCP.
 
-Cybersecurity remains a first-class use case, including OWASP study, labs, and CTF walkthroughs, but the workflow is intentionally subject-agnostic.
+Cybersecurity remains a first-class use case, including OWASP study, labs, and CTF walkthroughs, but the product is subject-agnostic.
 
 ## Core workflow
 
 1. Capture material in **Inbox**: narration, lecture notes, documentation, screenshots, URLs, worked problems, lab observations, or rough thoughts.
-2. Use the agent or the built-in **Debrief** to turn that material into structured notes, sources, practice items, and study-session records.
-3. Search and reuse the stored material during later study, revision, practice, or problem-solving.
-4. Preserve the original evidence and source links so generated summaries remain reviewable.
-
-The site is a persistent control surface and structured memory layer. It is not intended to replace the learner's reasoning.
+2. Use the agent or the built-in **Debrief** to structure that material into notes, sources, practice items, and study sessions.
+3. Search and reuse stored material during later study, revision, practice, or problem-solving.
+4. Preserve original evidence and source links so generated summaries remain reviewable.
 
 ## Interface
 
 - **Debrief** — AssemblyAI live narration, focused follow-up questions, evidence-backed draft review, and local saving.
 - **Inbox** — raw notes, URLs, screenshots, files, and narrated material.
 - **Notes** — structured study memory.
-- **Practice** — problems, labs, exercises, assignments, revision objectives, CTF challenges, and the sessions linked to them.
+- **Practice** — problems, labs, exercises, assignments, revision objectives, experiments, CTF challenges, and linked study sessions.
 - **Sources** — references used by notes and sessions.
 
-## Storage and compatibility
+## Data model
 
-Data is stored locally in IndexedDB. Existing Security Ledger data remains compatible.
-
-Record types are intentionally unchanged:
+Study Ledger uses five canonical record types:
 
 - `capture`
 - `note`
 - `source`
-- `challenge` — legacy storage name for a generic practice item
-- `solve` — legacy storage name for a generic study/practice session
+- `practice`
+- `session`
 
-Keeping these types avoids a migration that could orphan existing browser data. New records may include open-ended fields such as subject, course, activity type, formulas, commands, artifacts, or domain-specific metadata.
+The model is intentionally open-ended. A `practice` item can be a calculus problem, language exercise, lab, assignment task, revision objective, experiment, programming task, or CTF challenge. A `session` records the learner's work on a topic or practice item.
 
-Attachments are stored locally. WebMCP responses expose attachment metadata without sending stored file data.
-
-See [`DATA_MODEL.md`](./DATA_MODEL.md) for the schema.
+See [`DATA_MODEL.md`](./DATA_MODEL.md) for details.
 
 ## WebMCP tools
-
-Generic study-facing tools:
 
 ```text
 get_study_state
@@ -59,24 +51,15 @@ link_records
 delete_record
 ```
 
-Backward-compatible tools remain registered:
-
-```text
-get_security_state
-upsert_challenge
-record_solve
-```
-
-The generic aliases store data using the existing `challenge` and `solve` record types.
-
 ## Local behavior
 
 - IndexedDB persistence
 - JSON export and import
 - no account system
 - no cloud database
-- no API key required for the original ledger or WebMCP tools
-- optional AssemblyAI debrief through a small server; the permanent API key never goes to the browser
+- no API key required for the local ledger or WebMCP tools
+- optional AssemblyAI debrief through a small Node service
+- permanent AssemblyAI API key stays server-side
 - original captures and source links preserved alongside generated drafts
 - review-before-save for debrief output
 
@@ -104,8 +87,8 @@ Evidence quotes in generated drafts are checked against the learner's transcript
 
 ## Render
 
-- `render.yaml` deploys the original static ledger with no build step.
-- `render-voice.yaml` is the optional Node deployment for the AssemblyAI debrief.
+- `render.yaml` defines the static `study-ledger` service.
+- `render-voice.yaml` defines the optional Node `study-ledger-voice` service.
 
 The voice service keeps the permanent AssemblyAI key server-side, checks a private service password and allowed origin, limits request sizes/rates, and serves only an explicit public asset allowlist.
 
