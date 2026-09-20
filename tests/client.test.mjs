@@ -34,12 +34,12 @@ const setup = `debriefState = { id: 'test-session', title: 'Practice lab', trans
 test('saving preserves original evidence, links records, and is idempotent', async () => {
   const h = harness(); h.run(setup); await h.run('saveDebrief()');
   assert.equal(h.rows.size, 4);
-  const solve = [...h.rows.values()].find(x => x.type === 'solve');
-  assert.equal(solve.originalTranscript, 'The response was 403.');
-  assert.equal(solve.completedAt, '');
-  assert.equal(solve.agentSuggestions[0], 'Review access controls.');
-  assert.ok(h.rows.has(solve.sourceIds[0]));
-  assert.match(solve.steps[0], /Evidence:.*403/);
+  const session = [...h.rows.values()].find(x => x.type === 'session');
+  assert.equal(session.originalTranscript, 'The response was 403.');
+  assert.equal(session.completedAt, '');
+  assert.equal(session.agentSuggestions[0], 'Review access controls.');
+  assert.ok(h.rows.has(session.sourceIds[0]));
+  assert.match(session.steps[0], /Evidence:.*403/);
   await h.run('saveDebrief()'); assert.equal(h.rows.size, 4);
   assert.ok(h.sandbox.meta.voiceDebrief.saved);
 });
