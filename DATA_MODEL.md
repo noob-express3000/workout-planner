@@ -127,3 +127,15 @@ schemaVersion
 ```
 
 The repo intentionally avoids user accounts and server-side identity state.
+
+## Voice debrief extension
+
+No schema migration is needed: the existing record store accepts additional fields.
+
+- `meta.voiceDebrief`: current local session (`id`, `title`, `transcript`, `sourceText`, `questions`, `draft`, `reviewedTranscript`, `saved`). Drafts contain a model summary, grounded step/failure/lesson arrays with `{text,evidence}`, suggestions, gaps, and a follow-up question.
+- `meta.voiceEndpoint`: optional voice service origin; `meta.voiceSpeak`: spoken-question preference. Neither API keys nor the service password are stored or exported.
+- Saved `capture`: original transcript, question history, generated record IDs, and source links.
+- Saved `note`: user-reviewed model summary and quoted observations, with `provenance.captureId` and provider.
+- Saved `solve`: quoted observations, `originalTranscript`, `openQuestions`, `agentSuggestions`, `reviewStatus`, provenance, and source links. `completedAt` remains empty; the debrief does not certify completion.
+
+The capture, note, solve, new references, and saved session marker are written atomically. Session-derived IDs make retries idempotent. Export/import includes these records and metadata through the existing backup format. Source pages are not fetched and source quotes are not independently verified.

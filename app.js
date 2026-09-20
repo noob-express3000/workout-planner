@@ -6,7 +6,7 @@ const MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024;
 let db;
 let records = [];
 let meta = {};
-let activeView = 'inbox';
+let activeView = 'debrief';
 let searchQuery = '';
 let recognition = null;
 
@@ -151,6 +151,7 @@ function renderStats() {
 }
 
 const viewMeta = {
+  debrief: ['Voice study session', 'Debrief'],
   inbox: ['Staging queue', 'Inbox'],
   knowledge: ['Structured memory', 'Knowledge'],
   challenges: ['Practice ledger', 'Challenges'],
@@ -235,9 +236,11 @@ function render() {
     button.toggleAttribute('aria-current', active);
   });
   renderStats();
-  const renderers = { inbox: renderInbox, knowledge: renderKnowledge, challenges: renderChallenges, sources: renderSources };
+  const renderers = { debrief: renderDebrief, inbox: renderInbox, knowledge: renderKnowledge, challenges: renderChallenges, sources: renderSources };
   $('content').innerHTML = renderers[activeView]();
   if (activeView === 'inbox') bindCaptureForm();
+  if (activeView === 'debrief') bindDebrief();
+  $('searchInput').closest('label').hidden = activeView === 'debrief';
 }
 
 function listSection(title, items, ordered = false, code = false) {
@@ -312,6 +315,10 @@ function renderRecordBody(record) {
       + listSection('Failed attempts', record.failedAttempts || record.failed_attempts || [], true)
       + listSection('Lessons', record.lessons || [])
       + listSection('Artifacts', record.artifacts || [], false, true)
+      + listSection('Open questions', record.openQuestions || [])
+      + listSection('Agent suggestions — unverified', record.agentSuggestions || [])
+      + textSection('Original narration', record.originalTranscript)
+      + textSection('Review status', record.reviewStatus)
       + shared;
   }
   if (record.type === 'source') {
@@ -717,6 +724,7 @@ function bindUi() {
   document.querySelector('.tabs').addEventListener('click', (event) => {
     const button = event.target.closest('button[data-view]');
     if (!button) return;
+    if (activeView === 'debrief' && debriefBusy()) return;
     activeView = button.dataset.view;
     render();
   });
@@ -771,6 +779,7 @@ function bindUi() {
       for (const [key, value] of Object.entries(payload.meta || {})) await dbPut('meta', { key, value });
       await setMeta('schemaVersion', SCHEMA_VERSION);
       await loadModel();
+      debriefState = null;
       render();
       $('storageStatus').textContent = `Restored ${records.length} records.`;
     } catch (error) {
