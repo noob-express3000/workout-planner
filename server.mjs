@@ -64,7 +64,7 @@ export function createApp({ env = process.env, upstreamFetch = fetch } = {}) {
       const result = await upstreamFetch('https://llm-gateway.assemblyai.com/v1/chat/completions', {
         method: 'POST', headers, signal: AbortSignal.timeout(45000), body: JSON.stringify({ model: env.ASSEMBLYAI_LLM_MODEL || 'qwen3.5-4b-32k-fast', max_tokens: 2400,
           messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: JSON.stringify(input) }] }) });
-      if (!result.ok) return send(502, { error: `AssemblyAI could not review the walkthrough (${result.status}). Check LLM Gateway access and credits.` });
+      if (!result.ok) return send(502, { error: `AssemblyAI could not review the study session (${result.status}). Check LLM Gateway access and credits.` });
       const data = await result.json(); let draft;
       try {
         const content = data.choices?.[0]?.message?.content;
@@ -81,5 +81,5 @@ export function createApp({ env = process.env, upstreamFetch = fetch } = {}) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const server = createApp();
   server.requestTimeout = 60000;
-  server.listen(Number(process.env.PORT || 8080), process.env.HOST || '0.0.0.0', () => console.log('Security Ledger server ready.'));
+  server.listen(Number(process.env.PORT || 8080), process.env.HOST || '0.0.0.0', () => console.log('Study Ledger server ready.'));
 }
